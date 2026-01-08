@@ -1,0 +1,256 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+////////////////////
+/// ENUMS
+////////////////////
+
+enum ItemCategory {
+  SERENITY_GROUND
+  SERVICE
+}
+
+enum PurchaseType {
+  IMMEDIATE
+  FUTURE
+}
+
+enum FutureFor {
+  SELF
+  OTHER
+}
+
+enum PurchaseStatus {
+  PENDING_PAYMENT
+  PARTIALLY_PAID
+  PAID
+  CANCELLED
+}
+
+enum PaymentStatus {
+  INITIATED
+  SUCCESS
+  FAILED
+  EXPIRED
+}
+
+enum PricingSection {
+  MUHACHA
+  LAWN
+  DONHODZO
+  FAMILY
+}
+
+////////////////////
+/// CORE MODELS
+////////////////////
+
+model Product {
+  id             String          @id @default(uuid()) @db.Uuid
+  category       ItemCategory
+  title          String
+  slug           String?         @unique
+  priceText      String?
+  amount         Decimal         @db.Decimal(10,2)
+  currency       String
+  description    String?         @db.Text
+  imagePath      String?
+  sku            String?
+  pricingSection PricingSection?
+  active         Boolean         @default(true)
+  orderNum       Int             @default(0)
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+
+  purchases      Purchase[]
+  isAvailable    Boolean  @default(true)
+  @@map("items")
+  @@index([category, orderNum])
+}
+
+model Member {
+  id              String   @id @default(cuid())
+  firstName       String
+  lastName        String
+  country         String
+  address         String
+  city            String
+  email           String   @unique
+  phone           String
+  password        String
+  nationalId      String?  @unique
+  dateOfBirth     DateTime
+  gender          String?
+
+  expoPushToken   String?
+
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  purchases       Purchase[]
+  payments        Payment[]
+  nextOfKin       NextOfKin?
+
+  @@index([email])
+}
+
+////////////////////
+/// PURCHASE
+////////////////////
+
+model Purchase {
+  id            String         @id @default(uuid()) @db.Uuid
+  memberId      String
+  productId     String         @db.Uuid
+
+  purchaseType  PurchaseType
+  futureFor     FutureFor?
+
+  totalAmount   Decimal        @db.Decimal(10,2)
+  paidAmount    Decimal        @default(0) @db.Decimal(10,2)
+  balance       Decimal        @db.Decimal(10,2)
+
+  status        PurchaseStatus @default(PENDING_PAYMENT)
+
+  paidAt        DateTime?
+
+  nextDueAt        DateTime?
+  lastPaidAt       DateTime?
+  completedAt      DateTime?
+  reminderEnabled  Boolean?    @default(true)
+
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+
+  member        Member         @relation(fields: [memberId], references: [id])
+  product       Product        @relation(fields: [productId], references: [id])
+
+  payments      Payment[]
+  deceased      Deceased?
+
+  redeemedByMemberId String?
+  redeemedAt         DateTime?
+
+  yearPlanId Int?
+  yearPlan   YearPlan? @relation(fields: [yearPlanId], references: [id])
+
+  @@index([memberId])
+  @@index([memberId, status])
+  @@index([memberId, createdAt])
+}
+
+////////////////////
+/// PAYMENTS
+////////////////////
+
+model Payment {
+  id          String        @id @default(uuid()) @db.Uuid
+  purchaseId  String        @db.Uuid
+  memberId    String
+
+  amount      Decimal       @db.Decimal(10,2)
+  currency    String        @default("USD")
+  method      String        @default("PAYNOW")
+
+  reference   String        @unique
+  status      PaymentStatus @default(INITIATED)
+
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+  paidAt      DateTime?
+  pollUrl     String?
+
+  purchase    Purchase      @relation(fields: [purchaseId], references: [id])
+  member      Member        @relation(fields: [memberId], references: [id])
+
+  @@index([memberId])
+  @@index([memberId, createdAt])
+  @@index([purchaseId])
+  @@index([status])
+}
+
+////////////////////
+/// USAGE MODELS
+////////////////////
+
+model Deceased {
+  id             String   @id @default(uuid()) @db.Uuid
+  purchaseId     String   @unique @db.Uuid
+
+  fullName       String
+  dateOfBirth    DateTime
+  gender         String
+  address        String
+  relationship   String
+  causeOfDeath   String?
+  funeralParlor  String?
+  dateOfDeath    DateTime
+  expectedBurial DateTime?
+
+  purchase       Purchase @relation(fields: [purchaseId], references: [id])
+}
+
+model NextOfKin {
+  id            String   @id @default(uuid()) @db.Uuid
+  memberId      String   @unique
+
+  fullName      String
+  relationship  String
+  phone         String
+  email         String?
+  address       String
+
+  member        Member   @relation(fields: [memberId], references: [id])
+
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([memberId])
+}
+
+model YearPlan {
+  id                Int      @id @default(autoincrement())
+  name              String   @unique
+  currency          String   @default("USD")
+  months            Int
+
+  muhacha_under60   Decimal  @db.Decimal(10,2)
+  muhacha_over60    Decimal? @db.Decimal(10,2)
+
+  lawn_under60      Decimal  @db.Decimal(10,2)
+  lawn_over60       Decimal? @db.Decimal(10,2)
+
+  donhodzo_under60  Decimal  @db.Decimal(10,2)
+  donhodzo_over60   Decimal? @db.Decimal(10,2)
+
+  family_under60    Decimal  @db.Decimal(10,2)
+  family_over60     Decimal? @db.Decimal(10,2)
+
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  purchases         Purchase[]
+
+  @@map("year_plans")
+}
+
+model Upcoming {
+  id          Int      @id @default(autoincrement())
+  heading     String
+  description String
+  imagePath   String
+  orderNum    Int
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("upcoming")
+  @@index([orderNum])
+}
