@@ -19,23 +19,7 @@ export class PayNowService {
   private readonly PAYNOW_MOBILE_ENDPOINT =
     'https://www.paynow.co.zw/interface/remotetransaction';
 
-  private readonly integrationId = process.env.PAYNOW_INTEGRATION_ID;
-  private readonly integrationKey = process.env.PAYNOW_INTEGRATION_KEY;
-  private readonly returnUrl = process.env.PAYNOW_RETURN_URL;
-  private readonly resultUrl = process.env.PAYNOW_RESULT_URL;
-  private readonly authEmail = process.env.PAYNOW_AUTH_EMAIL;
-
   constructor(private readonly prisma: PrismaService) {
-    if (
-      !this.integrationId ||
-      !this.integrationKey ||
-      !this.returnUrl ||
-      !this.resultUrl ||
-      !this.authEmail
-    ) {
-      throw new Error('❌ PayNow environment variables are missing');
-    }
-
     this.http = axios.create({
       timeout: 10000,
       headers: {
@@ -45,11 +29,43 @@ export class PayNowService {
   }
 
   /* =====================================================
+     🔐 RUNTIME CONFIG (SAFE FOR RAILWAY)
+  ===================================================== */
+  private getConfig() {
+    const {
+      PAYNOW_INTEGRATION_ID,
+      PAYNOW_INTEGRATION_KEY,
+      PAYNOW_RETURN_URL,
+      PAYNOW_RESULT_URL,
+      PAYNOW_AUTH_EMAIL,
+    } = process.env;
+
+    if (
+      !PAYNOW_INTEGRATION_ID ||
+      !PAYNOW_INTEGRATION_KEY ||
+      !PAYNOW_RETURN_URL ||
+      !PAYNOW_RESULT_URL ||
+      !PAYNOW_AUTH_EMAIL
+    ) {
+      throw new Error('❌ PayNow environment variables are missing');
+    }
+
+    return {
+      integrationId: PAYNOW_INTEGRATION_ID,
+      integrationKey: PAYNOW_INTEGRATION_KEY,
+      returnUrl: PAYNOW_RETURN_URL,
+      resultUrl: PAYNOW_RESULT_URL,
+      authEmail: PAYNOW_AUTH_EMAIL,
+    };
+  }
+
+  /* =====================================================
      HASH GENERATION
   ===================================================== */
   private generateHash(
     payload: Record<string, string>,
     fieldOrder: string[],
+    integrationKey: string,
   ): string {
     let concat = '';
 
@@ -57,7 +73,7 @@ export class PayNowService {
       concat += String(payload[field] ?? '');
     }
 
-    concat += this.integrationKey;
+    concat += integrationKey;
 
     return crypto
       .createHash('sha512')
@@ -73,15 +89,23 @@ export class PayNowService {
     reference: string;
     amount: number;
   }) {
+    const {
+      integrationId,
+      integrationKey,
+      returnUrl,
+      resultUrl,
+      authEmail,
+    } = this.getConfig();
+
     const payload: Record<string, string> = {
-      id: this.integrationId!,
+      id: integrationId,
       reference: params.reference,
       amount: params.amount.toFixed(2),
       additionalinfo: 'Etosha Cemetery Payment',
-      returnurl: this.returnUrl!,
-      resulturl: this.resultUrl!,
+      returnurl: returnUrl,
+      resulturl: resultUrl,
       status: 'Message',
-      authemail: this.authEmail!,
+      authemail: authEmail,
     };
 
     const hashOrder = [
@@ -95,7 +119,11 @@ export class PayNowService {
       'authemail',
     ];
 
-    payload.hash = this.generateHash(payload, hashOrder);
+    payload.hash = this.generateHash(
+      payload,
+      hashOrder,
+      integrationKey,
+    );
 
     const response = await this.http.post(
       this.PAYNOW_WEB_ENDPOINT,
@@ -125,15 +153,23 @@ export class PayNowService {
     amount: number;
     phone: string;
   }) {
+    const {
+      integrationId,
+      integrationKey,
+      returnUrl,
+      resultUrl,
+      authEmail,
+    } = this.getConfig();
+
     const payload: Record<string, string> = {
-      id: this.integrationId!,
+      id: integrationId,
       reference: params.reference,
       amount: params.amount.toFixed(2),
       additionalinfo: 'Etosha Cemetery Payment',
-      returnurl: this.returnUrl!,
-      resulturl: this.resultUrl!,
+      returnurl: returnUrl,
+      resulturl: resultUrl,
       status: 'Message',
-      authemail: this.authEmail!,
+      authemail: authEmail,
       phone: params.phone,
       method: 'ecocash',
     };
@@ -151,7 +187,11 @@ export class PayNowService {
       'method',
     ];
 
-    payload.hash = this.generateHash(payload, hashOrder);
+    payload.hash = this.generateHash(
+      payload,
+      hashOrder,
+      integrationKey,
+    );
 
     const response = await this.http.post(
       this.PAYNOW_MOBILE_ENDPOINT,
@@ -173,8 +213,7 @@ export class PayNowService {
   }
 
   /* =====================================================
-     ✅ READ-ONLY POLLING (FIX)
-     This is what Reconciliation & Payments expect
+     READ-ONLY POLLING
   ===================================================== */
   async pollPayment(pollUrl: string): Promise<{
     status: 'PAID' | 'FAILED' | 'PENDING';
@@ -215,7 +254,7 @@ export class PayNowService {
         status: 'PENDING',
         reference: parsed.reference as string,
       };
-    } catch (err) {
+    } catch {
       return { status: 'PENDING' };
     }
   }
@@ -225,6 +264,8 @@ export class PayNowService {
   ===================================================== */
   verifyWebhookHash(payload: Record<string, any>): boolean {
     if (!payload?.hash) return false;
+
+    const { integrationKey } = this.getConfig();
 
     const fieldOrder = [
       'reference',
@@ -239,7 +280,7 @@ export class PayNowService {
       concat += String(payload[field] ?? '');
     }
 
-    concat += this.integrationKey;
+    concat += integrationKey;
 
     const computedHash = crypto
       .createHash('sha512')
