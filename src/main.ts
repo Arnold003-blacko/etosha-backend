@@ -4,20 +4,16 @@ import { ValidationPipe } from '@nestjs/common';
 import * as bodyParser from 'body-parser';
 import morgan from 'morgan';
 
-let app: any; // allow clean shutdown
-
 async function bootstrap() {
-  app = await NestFactory.create(AppModule);
+  const app = await NestFactory.create(AppModule);
 
   /**
-   * 👀 REAL-TIME REQUEST LOGGING (DEV)
-   * Logs every request as it happens
+   * 👀 REAL-TIME REQUEST LOGGING
    */
   app.use(morgan('dev'));
 
   /**
-   * 📦 BODY PARSERS (ORDER MATTERS)
-   * Explicitly define both JSON and urlencoded
+   * 📦 BODY PARSERS (Paynow requires urlencoded)
    */
   app.use(bodyParser.json());
   app.use(bodyParser.urlencoded({ extended: false }));
@@ -41,30 +37,13 @@ async function bootstrap() {
     credentials: true,
   });
 
-  // ✅ FIX: Railway-safe port binding
+  /**
+   * 🚀 Railway-safe port binding
+   */
   const port = Number(process.env.PORT) || 8080;
   await app.listen(port, '0.0.0.0');
 
-  console.log(
-    `🚀 Application is running on: http://0.0.0.0:${port}`,
-  );
+  console.log(`🚀 Application is running on: http://0.0.0.0:${port}`);
 }
 
 bootstrap();
-
-/**
- * 🛑 Graceful shutdown (SIGINT + SIGTERM)
- */
-const shutdown = async (signal: string) => {
-  console.log(`\n🛑 Shutting down (${signal})...`);
-
-  if (app) {
-    await app.close();
-  }
-
-  console.log('✅ Server closed.');
-  process.exit(0);
-};
-
-process.on('SIGINT', shutdown);
-process.on('SIGTERM', shutdown);
