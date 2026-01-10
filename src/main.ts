@@ -44,6 +44,27 @@ async function bootstrap() {
   await app.listen(port, '0.0.0.0');
 
   console.log(`🚀 Application is running on: http://0.0.0.0:${port}`);
+
+  /**
+   * 🫀 HEARTBEAT — proves container is still alive
+   * (SAFE on Railway)
+   */
+  setInterval(() => {
+    console.log('🫀 Container heartbeat: app is still running');
+  }, 10000);
 }
 
 bootstrap();
+
+/**
+ * 👀 OBSERVABILITY ONLY — does NOT shut down the app
+ * These logs appear when Railway stops the container
+ */
+
+process.on('beforeExit', (code) => {
+  console.log(`⚠️ Process beforeExit event with code: ${code}`);
+});
+
+process.on('exit', (code) => {
+  console.log(`🛑 Process exit event with code: ${code}`);
+});
