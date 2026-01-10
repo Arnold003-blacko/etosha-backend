@@ -41,7 +41,8 @@ async function bootstrap() {
     credentials: true,
   });
 
-  const port = Number(process.env.PORT) || 3000;
+  // ✅ FIX: Railway-safe port binding
+  const port = Number(process.env.PORT) || 8080;
   await app.listen(port, '0.0.0.0');
 
   console.log(
