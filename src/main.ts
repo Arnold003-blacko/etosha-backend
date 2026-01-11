@@ -8,12 +8,13 @@ async function bootstrap() {
   const app = await NestFactory.create(AppModule);
 
   /**
-   * 👀 REAL-TIME REQUEST LOGGING
+   * 👀 HTTP request logging
    */
   app.use(morgan('dev'));
 
   /**
-   * 📦 BODY PARSERS (Paynow requires urlencoded)
+   * 📦 BODY PARSERS
+   * PayNow requires urlencoded payloads
    */
   app.use(bodyParser.json());
   app.use(bodyParser.urlencoded({ extended: false }));
@@ -43,28 +44,7 @@ async function bootstrap() {
   const port = Number(process.env.PORT) || 8080;
   await app.listen(port, '0.0.0.0');
 
-  console.log(`🚀 Application is running on: http://0.0.0.0:${port}`);
-
-  /**
-   * 🫀 HEARTBEAT — proves container is still alive
-   * (SAFE on Railway)
-   */
-  setInterval(() => {
-    console.log('🫀 Container heartbeat: app is still running');
-  }, 10000);
+  console.log(`🚀 Application is running on port ${port}`);
 }
 
 bootstrap();
-
-/**
- * 👀 OBSERVABILITY ONLY — does NOT shut down the app
- * These logs appear when Railway stops the container
- */
-
-process.on('beforeExit', (code) => {
-  console.log(`⚠️ Process beforeExit event with code: ${code}`);
-});
-
-process.on('exit', (code) => {
-  console.log(`🛑 Process exit event with code: ${code}`);
-});
