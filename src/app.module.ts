@@ -2,8 +2,6 @@ import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { ScheduleModule } from '@nestjs/schedule';
 
-import { RootController } from './root.controller';
-
 import { DeceasedModule } from './deceased/deceased.module';
 import { PrismaModule } from './prisma/prisma.module';
 import { MembersModule } from './members/members.module';
@@ -42,9 +40,6 @@ import { ReconciliationModule } from './reconciliation/reconciliation.module';
 
     // 🛡️ Background reconciliation (NON-INTRUSIVE)
     ReconciliationModule,
-  ],
-  controllers: [
-    RootController, // 👈 ADDITION (diagnostic only)
   ],
 })
 export class AppModule {}
