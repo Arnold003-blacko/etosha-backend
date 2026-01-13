@@ -6,8 +6,13 @@ import {
   MinLength,
   Matches,
   IsDateString,
-  IsOptional,
+  IsEnum,
 } from 'class-validator';
+
+export enum Gender {
+  MALE = 'MALE',
+  FEMALE = 'FEMALE',
+}
 
 export class CreateMemberDto {
   @IsNotEmpty()
@@ -46,7 +51,13 @@ export class CreateMemberDto {
    * Expected format: YYYY-MM-DD (ISO string)
    * Stored as DateTime in Prisma
    */
-  @IsOptional()
   @IsDateString({}, { message: 'dateOfBirth must be a valid ISO date string' })
-  dateOfBirth?: string;
+  dateOfBirth: string;
+
+  /**
+   * Gender (REQUIRED)
+   * Allowed values: MALE | FEMALE
+   */
+  @IsEnum(Gender, { message: 'gender must be MALE or FEMALE' })
+  gender: Gender;
 }

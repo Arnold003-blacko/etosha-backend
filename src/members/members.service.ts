@@ -57,6 +57,9 @@ export class MembersService {
 
           // ✅ GUARANTEED NON-NULL DOB
           dateOfBirth: new Date(data.dateOfBirth),
+
+          // ✅ FIX: SAVE GENDER
+          gender: data.gender,
         },
       });
 

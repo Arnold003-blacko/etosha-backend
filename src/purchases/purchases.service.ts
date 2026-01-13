@@ -112,15 +112,11 @@ export class PurchasesService {
       throw new BadRequestException('Product is not a service');
     }
 
-    // ✅ CORRECT RULE:
-    // block ONLY if service is currently unavailable
     if (!product.isAvailable) {
       throw new BadRequestException(
         'Service is currently hired out',
       );
     }
-
-    // ❌ REMOVED: historical PAID check (incorrect for services)
 
     return this.initiatePurchase(
       {
@@ -216,11 +212,8 @@ export class PurchasesService {
       },
     });
 
-    // ✅ AUTO-REDEEM ONLY FOR IMMEDIATE
-    if (
-      purchase.purchaseType === PurchaseType.IMMEDIATE &&
-      !purchase.redeemedAt
-    ) {
+    // ✅ MARK AS REDEEMED ONCE DECEASED DETAILS ARE SAVED
+    if (!purchase.redeemedAt) {
       await this.prisma.purchase.update({
         where: { id: purchaseId },
         data: {
