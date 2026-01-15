@@ -29,7 +29,7 @@ export class PayNowService {
   }
 
   /* =====================================================
-     🔐 RUNTIME CONFIG (SAFE FOR RAILWAY)
+     🔐 RUNTIME CONFIG
   ===================================================== */
   private getConfig() {
     const {
@@ -119,11 +119,7 @@ export class PayNowService {
       'authemail',
     ];
 
-    payload.hash = this.generateHash(
-      payload,
-      hashOrder,
-      integrationKey,
-    );
+    payload.hash = this.generateHash(payload, hashOrder, integrationKey);
 
     const response = await this.http.post(
       this.PAYNOW_WEB_ENDPOINT,
@@ -133,9 +129,7 @@ export class PayNowService {
     const parsed = qs.parse(response.data);
 
     if (parsed.status !== 'Ok' || !parsed.pollurl) {
-      throw new InternalServerErrorException(
-        'Invalid PayNow response',
-      );
+      throw new InternalServerErrorException('Invalid PayNow response');
     }
 
     return {
@@ -146,13 +140,27 @@ export class PayNowService {
   }
 
   /* =====================================================
-     ECOCASH PUSH
+     🔴 ECOCASH PUSH (FIXED)
   ===================================================== */
+
+  private normalizeEcoCashPhone(phone: string): string {
+    let p = phone.replace(/\D/g, '');
+
+    if (p.startsWith('0')) p = '263' + p.substring(1);
+    if (p.startsWith('2637')) return p;
+
+    throw new BadRequestException('Invalid EcoCash phone number');
+  }
+
   async initiateEcoCashPayment(params: {
     reference: string;
     amount: number;
     phone: string;
   }) {
+    if (params.amount < 1) {
+      throw new BadRequestException('EcoCash minimum amount is $1');
+    }
+
     const {
       integrationId,
       integrationKey,
@@ -161,22 +169,26 @@ export class PayNowService {
       authEmail,
     } = this.getConfig();
 
+    const phone = this.normalizeEcoCashPhone(params.phone);
+
     const payload: Record<string, string> = {
       id: integrationId,
       reference: params.reference,
+      merchantreference: params.reference,
       amount: params.amount.toFixed(2),
       additionalinfo: 'Etosha Cemetery Payment',
       returnurl: returnUrl,
       resulturl: resultUrl,
       status: 'Message',
       authemail: authEmail,
-      phone: params.phone,
+      phone,
       method: 'ecocash',
     };
 
     const hashOrder = [
       'id',
       'reference',
+      'merchantreference',
       'amount',
       'additionalinfo',
       'returnurl',
@@ -187,11 +199,7 @@ export class PayNowService {
       'method',
     ];
 
-    payload.hash = this.generateHash(
-      payload,
-      hashOrder,
-      integrationKey,
-    );
+    payload.hash = this.generateHash(payload, hashOrder, integrationKey);
 
     const response = await this.http.post(
       this.PAYNOW_MOBILE_ENDPOINT,
@@ -202,7 +210,7 @@ export class PayNowService {
 
     if (parsed.status !== 'Ok' || !parsed.pollurl) {
       throw new InternalServerErrorException(
-        'Invalid EcoCash response',
+        `EcoCash failed: ${parsed.error || 'Unknown error'}`,
       );
     }
 
@@ -213,7 +221,7 @@ export class PayNowService {
   }
 
   /* =====================================================
-     READ-ONLY POLLING
+     POLLING
   ===================================================== */
   async pollPayment(pollUrl: string): Promise<{
     status: 'PAID' | 'FAILED' | 'PENDING';
@@ -233,9 +241,7 @@ export class PayNowService {
         return {
           status: 'PAID',
           reference: parsed.reference as string,
-          amount: parsed.amount
-            ? Number(parsed.amount)
-            : undefined,
+          amount: parsed.amount ? Number(parsed.amount) : undefined,
         };
       }
 
