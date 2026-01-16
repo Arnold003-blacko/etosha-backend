@@ -1,13 +1,13 @@
 // src/pricing/pricing.service.ts
 
-import { Product, YearPlan } from '@prisma/client';
+import { YearPlan, PricingSection } from '@prisma/client';
 
 /**
  * Resolve the monthly price from the YearPlan pricing matrix.
  * This is the ONLY place where pricing logic lives.
  */
 export function resolveMatrixPrice(
-  product: Product,
+  product: { pricingSection: PricingSection | null },
   yearPlan: YearPlan,
   memberAge: number,
 ): number {

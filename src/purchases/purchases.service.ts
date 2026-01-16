@@ -21,8 +21,16 @@ export class PurchasesService {
    * INITIATE PURCHASE
    * ===================================================== */
   async initiatePurchase(dto: CreatePurchaseDto, memberId: string) {
+    // ✅ OPTIMIZED: Fetch only needed fields
+    // For resolveMatrixPrice, we need the full product or at least pricingSection
     const product = await this.prisma.product.findUnique({
       where: { id: dto.productId },
+      select: {
+        id: true,
+        amount: true,
+        active: true,
+        pricingSection: true, // Required for resolveMatrixPrice
+      },
     });
 
     if (!product || !product.active) {
@@ -35,19 +43,24 @@ export class PurchasesService {
       dto.purchaseType === PurchaseType.FUTURE &&
       dto.yearPlanId
     ) {
-      const member = await this.prisma.member.findUnique({
-        where: { id: memberId },
-      });
+      // ✅ OPTIMIZED: Parallel queries for member and yearPlan
+      const [member, yearPlan] = await Promise.all([
+        this.prisma.member.findUnique({
+          where: { id: memberId },
+          select: {
+            dateOfBirth: true,
+          },
+        }),
+        this.prisma.yearPlan.findUnique({
+          where: { id: dto.yearPlanId },
+        }),
+      ]);
 
       if (!member?.dateOfBirth) {
         throw new BadRequestException(
           'Date of birth is required for installment purchases',
         );
       }
-
-      const yearPlan = await this.prisma.yearPlan.findUnique({
-        where: { id: dto.yearPlanId },
-      });
 
       if (!yearPlan) {
         throw new NotFoundException('Payment plan not found');
@@ -64,6 +77,7 @@ export class PurchasesService {
         age--;
       }
 
+      // product has pricingSection which is all resolveMatrixPrice needs
       const monthly = resolveMatrixPrice(product, yearPlan, age);
 
       if (!monthly || Number(monthly) <= 0) {
@@ -100,8 +114,16 @@ export class PurchasesService {
     dto: CreatePurchaseDto,
     memberId: string,
   ) {
+    // ✅ OPTIMIZED: Fetch only needed fields
     const product = await this.prisma.product.findUnique({
       where: { id: dto.productId },
+      select: {
+        id: true,
+        amount: true,
+        active: true,
+        category: true,
+        isAvailable: true,
+      },
     });
 
     if (!product || !product.active) {
@@ -230,9 +252,25 @@ export class PurchasesService {
    * GET MY PURCHASES
    * ===================================================== */
   async getMyPurchases(memberId: string) {
+    // ✅ OPTIMIZED: Use select instead of include to fetch only needed fields
     return this.prisma.purchase.findMany({
       where: { memberId },
-      include: {
+      select: {
+        id: true,
+        purchaseType: true,
+        futureFor: true,
+        totalAmount: true,
+        paidAmount: true,
+        balance: true,
+        status: true,
+        paidAt: true,
+        nextDueAt: true,
+        lastPaidAt: true,
+        completedAt: true,
+        reminderEnabled: true,
+        createdAt: true,
+        updatedAt: true,
+        redeemedAt: true,
         yearPlan: {
           select: { id: true, name: true, months: true },
         },

@@ -30,6 +30,10 @@ export class ItemsController {
   // GET /items/category/:cat
   @Get('category/:cat')
   async getByCategory(@Param('cat') cat: string) {
+    if (!cat || typeof cat !== 'string') {
+      throw new BadRequestException('Invalid category parameter');
+    }
+    
     const category = cat.toUpperCase() as ItemCategory;
 
     if (!Object.values(ItemCategory).includes(category)) {
@@ -60,6 +64,10 @@ export class ItemsController {
     // 1️⃣ Load item
     const item = await this.prisma.product.findUnique({
       where: { id },
+      select: {
+        id: true,
+        pricingSection: true,
+      },
     });
 
     if (!item || !item.pricingSection) {
@@ -73,17 +81,22 @@ export class ItemsController {
 
     const sectionKey = item.pricingSection.toLowerCase();
 
-    // 3️⃣ Shape response for frontend
-    return plans.map((plan) => ({
-      id: plan.id,
-      name: plan.name,
-      months: plan.months,
-      currency: plan.currency,
-      prices: {
-        under60: plan[`${sectionKey}_under60`],
-        over60: plan[`${sectionKey}_over60`],
-      },
-    }));
+    // 3️⃣ Shape response for frontend with safe property access
+    return plans.map((plan) => {
+      const under60Key = `${sectionKey}_under60` as keyof typeof plan;
+      const over60Key = `${sectionKey}_over60` as keyof typeof plan;
+      
+      return {
+        id: plan.id,
+        name: plan.name,
+        months: plan.months,
+        currency: plan.currency,
+        prices: {
+          under60: plan[under60Key] ?? null,
+          over60: plan[over60Key] ?? null,
+        },
+      };
+    });
   }
 
   // POST /items

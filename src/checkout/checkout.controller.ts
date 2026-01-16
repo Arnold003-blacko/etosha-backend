@@ -26,13 +26,44 @@ export class CheckoutController {
     @Param('purchaseId') purchaseId: string,
     @Req() req: any,
   ) {
-    const purchase = await this.prisma.purchase.findUnique({
-      where: { id: purchaseId },
-      include: {
-        product: true,
-        yearPlan: true,
-      },
-    });
+    // ✅ OPTIMIZED: Single query with select to fetch only needed fields
+    const [purchase, lastPayment] = await Promise.all([
+      this.prisma.purchase.findUnique({
+        where: { id: purchaseId },
+        select: {
+          id: true,
+          memberId: true,
+          status: true,
+          redeemedAt: true,
+          purchaseType: true,
+          totalAmount: true,
+          paidAmount: true,
+          balance: true,
+          product: {
+            select: {
+              id: true,
+              title: true,
+              category: true,
+              currency: true,
+            },
+          },
+          yearPlan: {
+            select: {
+              id: true,
+              months: true,
+            },
+          },
+        },
+      }),
+      this.prisma.payment.findFirst({
+        where: { purchaseId },
+        orderBy: { createdAt: 'desc' },
+        select: {
+          id: true,
+          status: true,
+        },
+      }),
+    ]);
 
     if (!purchase) {
       throw new NotFoundException('Purchase not found');
@@ -41,15 +72,6 @@ export class CheckoutController {
     if (purchase.memberId !== req.user.id) {
       throw new ForbiddenException('Not your purchase');
     }
-
-    /* =====================================================
-       LAST PAYMENT (SOURCE OF TRUTH)
-    ===================================================== */
-
-    const lastPayment = await this.prisma.payment.findFirst({
-      where: { purchaseId },
-      orderBy: { createdAt: 'desc' },
-    });
 
     const lastPaymentStatus =
       lastPayment?.status ?? PaymentStatus.INITIATED;

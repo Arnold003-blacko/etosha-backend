@@ -15,15 +15,55 @@ export class ItemsService {
   }
 
   async findAll() {
+    // ✅ OPTIMIZED: Fetch only needed fields (exclude password-like fields)
+    // Note: imageUrl is computed in mapRow(), not a DB field
     const rows = await this.prisma.product.findMany({
+      select: {
+        id: true,
+        category: true,
+        title: true,
+        slug: true,
+        priceText: true,
+        amount: true,
+        currency: true,
+        description: true,
+        imagePath: true,
+        sku: true,
+        pricingSection: true,
+        active: true,
+        isAvailable: true,
+        orderNum: true,
+        createdAt: true,
+        updatedAt: true,
+      },
       orderBy: { orderNum: 'asc' },
     });
     return rows.map(r => this.mapRow(r));
   }
 
   async findByCategory(category: ItemCategory) {
+    // ✅ OPTIMIZED: Fetch only needed fields
+    // Note: imageUrl is computed in mapRow(), not a DB field
     const rows = await this.prisma.product.findMany({
       where: { category },
+      select: {
+        id: true,
+        category: true,
+        title: true,
+        slug: true,
+        priceText: true,
+        amount: true,
+        currency: true,
+        description: true,
+        imagePath: true,
+        sku: true,
+        pricingSection: true,
+        active: true,
+        isAvailable: true,
+        orderNum: true,
+        createdAt: true,
+        updatedAt: true,
+      },
       orderBy: { orderNum: 'asc' },
     });
     return rows.map(r => this.mapRow(r));
