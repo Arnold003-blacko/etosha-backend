@@ -13,6 +13,25 @@ import {
 } from '@prisma/client';
 import { resolveMatrixPrice } from '../pricing/pricing.service';
 
+/**
+ * UUID validation regex pattern
+ * Matches standard UUID format: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
+ */
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * Validates if a string is a valid UUID format
+ * Prevents Prisma crashes from invalid UUID strings
+ */
+function validateUUID(id: string, fieldName: string = 'ID'): void {
+  if (!id || typeof id !== 'string') {
+    throw new BadRequestException(`Invalid ${fieldName}: must be a string`);
+  }
+  if (!UUID_REGEX.test(id)) {
+    throw new BadRequestException(`Invalid ${fieldName}: must be a valid UUID format`);
+  }
+}
+
 @Injectable()
 export class PurchasesService {
   constructor(private readonly prisma: PrismaService) {}
@@ -154,6 +173,9 @@ export class PurchasesService {
    * VERIFY FUTURE REDEEM (FOR MODAL)
    * ===================================================== */
   async verifyRedeem(purchaseId: string, memberId: string) {
+    // 🔒 Guard: Validate UUID before database query
+    validateUUID(purchaseId, 'Purchase ID');
+    
     const purchase = await this.prisma.purchase.findUnique({
       where: { id: purchaseId },
     });
@@ -201,6 +223,9 @@ export class PurchasesService {
     },
     memberId: string,
   ) {
+    // 🔒 Guard: Validate UUID before database query
+    validateUUID(purchaseId, 'Purchase ID');
+    
     const purchase = await this.prisma.purchase.findUnique({
       where: { id: purchaseId },
     });

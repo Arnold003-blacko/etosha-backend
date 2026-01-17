@@ -14,6 +14,7 @@ import { PaymentsModule } from './payments/payments.module';
 import { PayNowModule } from './paynow/paynow.module';
 import { CheckoutModule } from './checkout/checkout.module';
 import { ReconciliationModule } from './reconciliation/reconciliation.module';
+import { DashboardModule } from './dashboard/dashboard.module';
 
 @Module({
   imports: [
@@ -37,6 +38,7 @@ import { ReconciliationModule } from './reconciliation/reconciliation.module';
     PayNowModule,
     CheckoutModule,
     DeceasedModule,
+    DashboardModule,
 
     // 🛡️ Background reconciliation (NON-INTRUSIVE)
     ReconciliationModule,

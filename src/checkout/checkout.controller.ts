@@ -6,6 +6,7 @@ import {
   UseGuards,
   NotFoundException,
   ForbiddenException,
+  BadRequestException,
 } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { PrismaService } from '../prisma/prisma.service';
@@ -15,6 +16,20 @@ import {
   PaymentStatus,
   ItemCategory,
 } from '@prisma/client';
+
+/**
+ * UUID validation regex pattern
+ */
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function validateUUID(id: string, fieldName: string = 'ID'): void {
+  if (!id || typeof id !== 'string') {
+    throw new BadRequestException(`Invalid ${fieldName}: must be a string`);
+  }
+  if (!UUID_REGEX.test(id)) {
+    throw new BadRequestException(`Invalid ${fieldName}: must be a valid UUID format`);
+  }
+}
 
 @Controller('checkout')
 @UseGuards(JwtAuthGuard)
@@ -26,6 +41,9 @@ export class CheckoutController {
     @Param('purchaseId') purchaseId: string,
     @Req() req: any,
   ) {
+    // 🔒 Guard: Validate UUID before database query
+    validateUUID(purchaseId, 'Purchase ID');
+    
     // ✅ OPTIMIZED: Single query with select to fetch only needed fields
     const [purchase, lastPayment] = await Promise.all([
       this.prisma.purchase.findUnique({

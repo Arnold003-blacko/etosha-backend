@@ -3,6 +3,7 @@ import {
   Injectable,
   NotFoundException,
   ForbiddenException,
+  BadRequestException,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateDeceasedDto } from './dto/create-deceased.dto';
@@ -20,6 +21,11 @@ export class DeceasedService {
     dto: CreateDeceasedDto,
     memberId: string,
   ) {
+    // 🔒 Guard: Validate UUID before database query
+    if (!dto.purchaseId || typeof dto.purchaseId !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(dto.purchaseId)) {
+      throw new BadRequestException('Invalid Purchase ID: must be a valid UUID format');
+    }
+    
     return this.prisma.$transaction(async (tx) => {
       // 1️⃣ Load purchase
       const purchase = await tx.purchase.findUnique({

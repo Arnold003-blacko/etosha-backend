@@ -28,6 +28,11 @@ export class PaymentsService {
    * INTERNAL PAYMENT (NO PAYNOW)
    * ===================================================== */
   async createPayment(dto: CreatePaymentDto, memberId: string) {
+    // 🔒 Guard: Validate UUID before database query
+    if (!dto.purchaseId || typeof dto.purchaseId !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(dto.purchaseId)) {
+      throw new BadRequestException('Invalid Purchase ID: must be a valid UUID format');
+    }
+    
     const purchase = await this.prisma.purchase.findUnique({
       where: { id: dto.purchaseId },
     });
@@ -83,6 +88,11 @@ export class PaymentsService {
     memberId: string,
     amount: number,
   ) {
+    // 🔒 Guard: Validate UUID before database query
+    if (!purchaseId || typeof purchaseId !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(purchaseId)) {
+      throw new BadRequestException('Invalid Purchase ID: must be a valid UUID format');
+    }
+    
     const purchase = await this.prisma.purchase.findUnique({
       where: { id: purchaseId },
     });
@@ -135,6 +145,11 @@ export class PaymentsService {
     phone: string,
     amount: number,
   ) {
+    // 🔒 Guard: Validate UUID before database query
+    if (!purchaseId || typeof purchaseId !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(purchaseId)) {
+      throw new BadRequestException('Invalid Purchase ID: must be a valid UUID format');
+    }
+    
     if (!/^07\d{8}$/.test(phone)) {
       throw new BadRequestException('Invalid EcoCash number');
     }
@@ -185,6 +200,11 @@ export class PaymentsService {
     paymentId: string,
     memberId: string,
   ) {
+    // 🔒 Guard: Validate UUID before database query
+    if (!paymentId || typeof paymentId !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(paymentId)) {
+      throw new BadRequestException('Invalid Payment ID: must be a valid UUID format');
+    }
+    
     const payment = await this.prisma.payment.findUnique({
       where: { id: paymentId },
     });
@@ -348,6 +368,7 @@ export class PaymentsService {
     });
   }
 
+
   /* =====================================================
    * GENERATE RECEIPT PDF
    * ===================================================== */
@@ -356,6 +377,11 @@ export class PaymentsService {
     memberId: string,
     res: Response,
   ) {
+    // 🔒 Guard: Validate UUID before database query
+    if (!paymentId || typeof paymentId !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(paymentId)) {
+      throw new BadRequestException('Invalid Payment ID: must be a valid UUID format');
+    }
+    
     const payment = await this.prisma.payment.findUnique({
       where: { id: paymentId },
       include: { member: true },
