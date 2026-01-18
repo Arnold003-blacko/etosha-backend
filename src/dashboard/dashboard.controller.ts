@@ -29,4 +29,19 @@ export class DashboardController {
     const limitNum = limit ? parseInt(limit, 10) : 10;
     return this.dashboardService.getRecentActivities(limitNum);
   }
+
+  /* ============================
+   * GET ALL PAYMENTS (ADMIN)
+   * ============================ */
+  @Get('payments')
+  getAllPayments(
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+    @Query('status') status?: string,
+    @Query('method') method?: string,
+  ) {
+    const pageNum = page ? parseInt(page, 10) : 1;
+    const limitNum = limit ? parseInt(limit, 10) : 50;
+    return this.dashboardService.getAllPayments(pageNum, limitNum, status, method);
+  }
 }
