@@ -44,4 +44,12 @@ export class DashboardController {
     const limitNum = limit ? parseInt(limit, 10) : 50;
     return this.dashboardService.getAllPayments(pageNum, limitNum, status, method);
   }
+
+  /* ============================
+   * GET DEBT CONTROL (ADMIN)
+   * ============================ */
+  @Get('debt-control')
+  getDebtControl() {
+    return this.dashboardService.getDebtControl();
+  }
 }

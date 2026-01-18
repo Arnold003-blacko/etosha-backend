@@ -623,4 +623,158 @@ export class DashboardService {
       },
     };
   }
+
+  /* =====================================================
+   * GET DEBT CONTROL - Monthly debt calculation
+   * ===================================================== */
+  async getDebtControl() {
+    const now = new Date();
+    const currentMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+    currentMonth.setHours(0, 0, 0, 0);
+
+    // Get all purchases with installment plans and balance > 0
+    const purchases = await this.prisma.purchase.findMany({
+      where: {
+        balance: { gt: 0 },
+        yearPlanId: { not: null },
+        purchaseType: PurchaseType.FUTURE,
+        status: {
+          in: [PurchaseStatus.PENDING_PAYMENT, PurchaseStatus.PARTIALLY_PAID],
+        },
+      },
+      include: {
+        member: {
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
+            dateOfBirth: true,
+          },
+        },
+        product: {
+          select: {
+            id: true,
+            title: true,
+            category: true,
+            pricingSection: true,
+          },
+        },
+        yearPlan: true,
+        payments: {
+          where: {
+            status: PaymentStatus.SUCCESS,
+            paidAt: { not: null },
+          },
+          select: {
+            id: true,
+            amount: true,
+            paidAt: true,
+          },
+          orderBy: { paidAt: 'asc' },
+        },
+      },
+    });
+
+    const debtRecords: any[] = [];
+
+    for (const purchase of purchases) {
+      if (!purchase.yearPlan || !purchase.product.pricingSection) {
+        continue;
+      }
+
+      try {
+        // Calculate monthly installment
+        const totalMonths = purchase.yearPlan.months;
+        const monthlyInstallment = Number(purchase.totalAmount) / totalMonths;
+
+        // Determine purchase start month
+        const purchaseDate = new Date(purchase.createdAt);
+        const purchaseMonth = new Date(
+          purchaseDate.getFullYear(),
+          purchaseDate.getMonth(),
+          1,
+        );
+        purchaseMonth.setHours(0, 0, 0, 0);
+
+        // Calculate which month number we're checking (0-indexed from purchase start)
+        const monthsDiff =
+          (currentMonth.getFullYear() - purchaseMonth.getFullYear()) * 12 +
+          (currentMonth.getMonth() - purchaseMonth.getMonth());
+        
+        // Current month number (0 = first month, 1 = second month, etc.)
+        const currentMonthNumber = Math.max(0, monthsDiff);
+
+        // Get all successful payments (already filtered by Prisma query)
+        const successfulPayments = purchase.payments;
+
+        // Track which months are covered by payments
+        const paidAmountTracker = Number(purchase.paidAmount);
+        let monthsCovered = 0;
+
+        // Calculate how many months are covered based on total paid amount
+        // Each month costs monthlyInstallment
+        monthsCovered = Math.floor(paidAmountTracker / monthlyInstallment);
+
+        // Check if current month is covered
+        // If monthsCovered > currentMonthNumber, current month is paid
+        const isCurrentMonthPaid = monthsCovered > currentMonthNumber;
+
+        // Calculate months behind (negative means ahead, 0 means current, positive means behind)
+        const monthsBehind = currentMonthNumber - monthsCovered;
+        const isThreeMonthsLapsed = monthsBehind >= 3;
+
+        // Calculate amount owed for current month (0 if paid ahead or current)
+        const amountPaidInCurrentMonth = paidAmountTracker % monthlyInstallment;
+        const amountOwedForCurrentMonth = isCurrentMonthPaid
+          ? 0
+          : monthlyInstallment - amountPaidInCurrentMonth;
+
+        // Include ALL members, not just those who owe this month
+        debtRecords.push({
+          purchaseId: purchase.id,
+          member: {
+            id: purchase.member.id,
+            firstName: purchase.member.firstName,
+            lastName: purchase.member.lastName,
+          },
+          product: {
+            id: purchase.product.id,
+            title: purchase.product.title,
+            category: purchase.product.category,
+          },
+          yearPlan: {
+            id: purchase.yearPlan.id,
+            name: purchase.yearPlan.name,
+            months: purchase.yearPlan.months,
+          },
+          totalAmount: Number(purchase.totalAmount),
+          paidAmount: Number(purchase.paidAmount),
+          balance: Number(purchase.balance),
+          monthlyInstallment: Math.round(monthlyInstallment * 100) / 100,
+          amountOwedThisMonth:
+            Math.round(amountOwedForCurrentMonth * 100) / 100,
+          monthsCovered,
+          currentMonthNumber,
+          monthsBehind,
+          isThreeMonthsLapsed,
+          purchaseDate: purchase.createdAt.toISOString(),
+          lastPaymentDate:
+            successfulPayments.length > 0
+              ? (successfulPayments[successfulPayments.length - 1].paidAt as Date).toISOString()
+              : null,
+        });
+      } catch (error) {
+        console.error(
+          `Error calculating debt for purchase ${purchase.id}:`,
+          error,
+        );
+        continue;
+      }
+    }
+
+    // Sort by amount owed (descending) - highest debts first
+    debtRecords.sort((a, b) => b.amountOwedThisMonth - a.amountOwedThisMonth);
+
+    return debtRecords;
+  }
 }
