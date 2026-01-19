@@ -2,6 +2,8 @@ import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { ScheduleModule } from '@nestjs/schedule';
 
+import { AppController } from './app.controller';
+import { AppService } from './app.service';
 import { DeceasedModule } from './deceased/deceased.module';
 import { PrismaModule } from './prisma/prisma.module';
 import { MembersModule } from './members/members.module';
@@ -13,10 +15,11 @@ import { PurchasesModule } from './purchases/purchases.module';
 import { PaymentsModule } from './payments/payments.module';
 import { PayNowModule } from './paynow/paynow.module';
 import { CheckoutModule } from './checkout/checkout.module';
-import { ReconciliationModule } from './reconciliation/reconciliation.module';
 import { DashboardModule } from './dashboard/dashboard.module';
 
 @Module({
+  controllers: [AppController],
+  providers: [AppService],
   imports: [
     // Global config (.env)
     ConfigModule.forRoot({ isGlobal: true }),
@@ -39,9 +42,6 @@ import { DashboardModule } from './dashboard/dashboard.module';
     CheckoutModule,
     DeceasedModule,
     DashboardModule,
-
-    // 🛡️ Background reconciliation (NON-INTRUSIVE)
-    ReconciliationModule,
   ],
 })
 export class AppModule {}
