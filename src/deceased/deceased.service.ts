@@ -4,14 +4,21 @@ import {
   NotFoundException,
   ForbiddenException,
   BadRequestException,
+  Inject,
+  forwardRef,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateDeceasedDto } from './dto/create-deceased.dto';
 import { PurchaseStatus } from '@prisma/client';
+import { DashboardGateway } from '../dashboard/dashboard.gateway';
 
 @Injectable()
 export class DeceasedService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    @Inject(forwardRef(() => DashboardGateway))
+    private readonly dashboardGateway: DashboardGateway,
+  ) {}
 
   /**
    * ✅ SINGLE SOURCE OF TRUTH
@@ -80,6 +87,9 @@ export class DeceasedService {
           redeemedByMemberId: memberId,
         },
       });
+
+      // Emit real-time update (after transaction completes)
+      this.dashboardGateway.broadcastDashboardUpdate();
 
       return deceased;
     });

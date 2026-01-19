@@ -2,17 +2,24 @@ import {
   Injectable,
   BadRequestException,
   UnauthorizedException,
+  Inject,
+  forwardRef,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateMemberDto } from './dto/create-member.dto';
 import { LoginMemberDto } from './dto/login-member.dto';
 import { UpsertNextOfKinDto } from './dto/upsert-next-of-kin.dto';
 import * as bcrypt from 'bcrypt';
+import { DashboardGateway } from '../dashboard/dashboard.gateway';
 import * as jwt from 'jsonwebtoken';
 
 @Injectable()
 export class MembersService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    @Inject(forwardRef(() => DashboardGateway))
+    private readonly dashboardGateway: DashboardGateway,
+  ) {}
 
   // helper to remove sensitive fields
   private sanitize(member: any) {
@@ -62,6 +69,9 @@ export class MembersService {
           gender: data.gender,
         },
       });
+
+      // Emit real-time update
+      this.dashboardGateway.broadcastDashboardUpdate();
 
       return {
         message: 'Signup successful',

@@ -3,6 +3,8 @@ import {
   NotFoundException,
   ForbiddenException,
   BadRequestException,
+  Inject,
+  forwardRef,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreatePurchaseDto } from './dto/create-purchase.dto';
@@ -12,6 +14,7 @@ import {
   ItemCategory,
 } from '@prisma/client';
 import { resolveMatrixPrice } from '../pricing/pricing.service';
+import { DashboardGateway } from '../dashboard/dashboard.gateway';
 
 /**
  * UUID validation regex pattern
@@ -34,7 +37,11 @@ function validateUUID(id: string, fieldName: string = 'ID'): void {
 
 @Injectable()
 export class PurchasesService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    @Inject(forwardRef(() => DashboardGateway))
+    private readonly dashboardGateway: DashboardGateway,
+  ) {}
 
   /* =====================================================
    * INITIATE PURCHASE
@@ -108,7 +115,7 @@ export class PurchasesService {
       totalAmount = Number(monthly) * yearPlan.months;
     }
 
-    return this.prisma.purchase.create({
+    const purchase = await this.prisma.purchase.create({
       data: {
         memberId,
         productId: product.id,
@@ -124,6 +131,11 @@ export class PurchasesService {
         status: PurchaseStatus.PENDING_PAYMENT,
       },
     });
+
+    // Emit real-time update
+    this.dashboardGateway.broadcastDashboardUpdate();
+
+    return purchase;
   }
 
   /* =====================================================

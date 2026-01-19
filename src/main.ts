@@ -3,9 +3,13 @@ import { AppModule } from './app.module';
 import { ValidationPipe } from '@nestjs/common';
 import * as bodyParser from 'body-parser';
 import morgan from 'morgan';
+import { IoAdapter } from '@nestjs/platform-socket.io';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
+  
+  // Configure WebSocket adapter for Socket.IO
+  app.useWebSocketAdapter(new IoAdapter(app));
 
   /**
    * 👀 HTTP request logging

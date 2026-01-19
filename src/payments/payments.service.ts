@@ -3,6 +3,8 @@ import {
   Injectable,
   NotFoundException,
   ForbiddenException,
+  Inject,
+  forwardRef,
 } from '@nestjs/common';
 import { randomUUID } from 'crypto';
 import PDFDocument from 'pdfkit';
@@ -16,12 +18,15 @@ import {
   PurchaseType,
 } from '@prisma/client';
 import { PayNowService } from '../paynow/paynow.service';
+import { DashboardGateway } from '../dashboard/dashboard.gateway';
 
 @Injectable()
 export class PaymentsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly paynow: PayNowService,
+    @Inject(forwardRef(() => DashboardGateway))
+    private readonly dashboardGateway: DashboardGateway,
   ) {}
 
   /* =====================================================
@@ -78,6 +83,9 @@ export class PaymentsService {
         },
       }),
     ]);
+
+    // Emit real-time update
+    this.dashboardGateway.broadcastDashboardUpdate();
   }
 
   /* =====================================================
@@ -325,6 +333,9 @@ export class PaymentsService {
         },
       }),
     ]);
+
+    // Emit real-time update
+    this.dashboardGateway.broadcastDashboardUpdate();
   }
 
   /* =====================================================

@@ -649,6 +649,7 @@ export class DashboardService {
             firstName: true,
             lastName: true,
             dateOfBirth: true,
+            phone: true,
           },
         },
         product: {
@@ -736,6 +737,7 @@ export class DashboardService {
             id: purchase.member.id,
             firstName: purchase.member.firstName,
             lastName: purchase.member.lastName,
+            phone: purchase.member.phone,
           },
           product: {
             id: purchase.product.id,
