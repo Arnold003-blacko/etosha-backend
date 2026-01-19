@@ -320,107 +320,126 @@ export class DashboardService {
 
   /* =====================================================
    * GET REVENUE DATA FOR CHART
+   * Optimized to use database aggregation instead of loading all payments
    * ===================================================== */
   async getRevenueData(period: 'week' | 'month' | 'year') {
     const now = new Date();
-    const payments = await this.prisma.payment.findMany({
-      where: {
-        status: PaymentStatus.SUCCESS,
-        paidAt: {
-          not: null,
-        },
-      },
-      select: {
-        amount: true,
-        paidAt: true,
-      },
-      orderBy: {
-        paidAt: 'asc',
-      },
-    });
 
     if (period === 'week') {
-      // Last 7 days
-      const data: { period: string; revenue: number }[] = [];
+      // Last 7 days - use database aggregation for each day
       const today = new Date(now);
       today.setHours(0, 0, 0, 0);
 
+      // Fetch all days in parallel for better performance
+      const dayPromises: Promise<{ period: string; revenue: number; date: Date }>[] = [];
       for (let i = 6; i >= 0; i--) {
         const date = new Date(today);
         date.setDate(today.getDate() - i);
         const nextDate = new Date(date);
         nextDate.setDate(date.getDate() + 1);
 
-        const dayRevenue = payments
-          .filter((p) => {
-            const paidAt = p.paidAt ? new Date(p.paidAt) : null;
-            return paidAt && paidAt >= date && paidAt < nextDate;
-          })
-          .reduce((sum, p) => sum + Number(p.amount), 0);
-
-        data.push({
-          period: date.toLocaleDateString('en-US', { weekday: 'short', day: 'numeric', month: 'short' }),
-          revenue: dayRevenue,
-        });
+        dayPromises.push(
+          this.prisma.payment.aggregate({
+            where: {
+              status: PaymentStatus.SUCCESS,
+              paidAt: {
+                gte: date,
+                lt: nextDate,
+              },
+            },
+            _sum: {
+              amount: true,
+            },
+          }).then((result) => ({
+            period: date.toLocaleDateString('en-US', { weekday: 'short', day: 'numeric', month: 'short' }),
+            revenue: Number(result._sum.amount || 0),
+            date,
+          }))
+        );
       }
 
-      return data;
+      const results = await Promise.all(dayPromises);
+      // Sort by date to ensure correct order
+      results.sort((a, b) => a.date.getTime() - b.date.getTime());
+      return results.map(({ period, revenue }) => ({ period, revenue }));
     }
 
     if (period === 'month') {
-      // Last 12 months
-      const data: { period: string; revenue: number }[] = [];
+      // Last 12 months - use database aggregation for each month
       const today = new Date(now);
       today.setDate(1); // First day of current month
       today.setHours(0, 0, 0, 0);
 
+      // Fetch all months in parallel for better performance
+      const monthPromises: Promise<{ period: string; revenue: number; date: Date }>[] = [];
       for (let i = 11; i >= 0; i--) {
         const date = new Date(today);
         date.setMonth(today.getMonth() - i);
         const nextDate = new Date(date);
         nextDate.setMonth(date.getMonth() + 1);
 
-        const monthRevenue = payments
-          .filter((p) => {
-            const paidAt = p.paidAt ? new Date(p.paidAt) : null;
-            return paidAt && paidAt >= date && paidAt < nextDate;
-          })
-          .reduce((sum, p) => sum + Number(p.amount), 0);
-
-        data.push({
-          period: date.toLocaleDateString('en-US', { month: 'short', year: 'numeric' }),
-          revenue: monthRevenue,
-        });
+        monthPromises.push(
+          this.prisma.payment.aggregate({
+            where: {
+              status: PaymentStatus.SUCCESS,
+              paidAt: {
+                gte: date,
+                lt: nextDate,
+              },
+            },
+            _sum: {
+              amount: true,
+            },
+          }).then((result) => ({
+            period: date.toLocaleDateString('en-US', { month: 'short', year: 'numeric' }),
+            revenue: Number(result._sum.amount || 0),
+            date,
+          }))
+        );
       }
 
-      return data;
+      const results = await Promise.all(monthPromises);
+      // Sort by date to ensure correct order
+      results.sort((a, b) => a.date.getTime() - b.date.getTime());
+      return results.map(({ period, revenue }) => ({ period, revenue }));
     }
 
     if (period === 'year') {
-      // Last 5 years
-      const data: { period: string; revenue: number }[] = [];
+      // Last 5 years - use database aggregation for each year
       const today = new Date(now);
       const currentYear = today.getFullYear();
 
+      // Fetch all years in parallel for better performance
+      const yearPromises: Array<Promise<{ period: string; revenue: number; year: number }>> = [];
       for (let i = 4; i >= 0; i--) {
         const year = currentYear - i;
         const startDate = new Date(year, 0, 1);
         const endDate = new Date(year + 1, 0, 1);
 
-        const yearRevenue = payments
-          .filter((p) => {
-            const paidAt = p.paidAt ? new Date(p.paidAt) : null;
-            return paidAt && paidAt >= startDate && paidAt < endDate;
-          })
-          .reduce((sum, p) => sum + Number(p.amount), 0);
-
-        data.push({
+        const promise = this.prisma.payment.aggregate({
+          where: {
+            status: PaymentStatus.SUCCESS,
+            paidAt: {
+              gte: startDate,
+              lt: endDate,
+            },
+          },
+          _sum: {
+            amount: true,
+          },
+        }).then((result) => ({
           period: year.toString(),
-          revenue: yearRevenue,
-        });
+          revenue: Number(result._sum.amount || 0),
+          year,
+        }));
+        
+        yearPromises.push(promise);
       }
 
-      return data;
+      const results = await Promise.all(yearPromises);
+      // Sort by year to ensure correct order
+      results.sort((a, b) => a.year - b.year);
+      return results.map(({ period, revenue }) => ({ period, revenue }));
     }
 
     return [];

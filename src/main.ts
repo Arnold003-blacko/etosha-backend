@@ -9,6 +9,7 @@ async function bootstrap() {
   const app = await NestFactory.create(AppModule);
   
   // Configure WebSocket adapter for Socket.IO
+  // CORS is handled globally below and in gateway decorators
   app.useWebSocketAdapter(new IoAdapter(app));
 
   /**
@@ -35,11 +36,23 @@ async function bootstrap() {
   );
 
   /**
-   * 🌍 CORS
+   * 🌍 CORS - Allow all origins for development and production
    */
   app.enableCors({
-    origin: true,
+    origin: (origin, callback) => {
+      // Allow requests with no origin (like mobile apps, Postman, or server-to-server)
+      if (!origin) {
+        return callback(null, true);
+      }
+      // Allow all origins - adjust this in production if needed
+      callback(null, true);
+    },
     credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'Accept', 'Origin', 'X-Requested-With'],
+    exposedHeaders: ['Content-Length', 'Content-Type'],
+    preflightContinue: false,
+    optionsSuccessStatus: 204,
   });
 
   /**
