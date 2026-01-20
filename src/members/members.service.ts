@@ -73,8 +73,23 @@ export class MembersService {
       // Emit real-time update
       this.dashboardGateway.broadcastDashboardUpdate();
 
+      // Generate JWT token (same as login)
+      const jwtSecret = process.env.JWT_SECRET as string;
+      if (!jwtSecret) {
+        throw new Error(
+          'JWT_SECRET is missing in environment variables',
+        );
+      }
+
+      const token = jwt.sign(
+        { id: member.id, email: member.email },
+        jwtSecret,
+        { expiresIn: '7d' },
+      );
+
       return {
         message: 'Signup successful',
+        token, // Return token so user is automatically logged in
         member: this.sanitize(member),
       };
     } catch (e: any) {

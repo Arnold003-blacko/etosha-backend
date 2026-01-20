@@ -1,9 +1,13 @@
-import { Controller, Get, Query } from '@nestjs/common';
+import { Controller, Get, Query, Post, Body, Delete } from '@nestjs/common';
 import { DashboardService } from './dashboard.service';
+import { LoggerService, LogLevel, LogCategory } from './logger.service';
 
 @Controller('dashboard')
 export class DashboardController {
-  constructor(private readonly dashboardService: DashboardService) {}
+  constructor(
+    private readonly dashboardService: DashboardService,
+    private readonly loggerService: LoggerService,
+  ) {}
 
   /* ============================
    * GET DASHBOARD STATISTICS
@@ -51,5 +55,61 @@ export class DashboardController {
   @Get('debt-control')
   getDebtControl() {
     return this.dashboardService.getDebtControl();
+  }
+
+  /* ============================
+   * LOGS & HEALTH MONITORING
+   * ============================ */
+  
+  /**
+   * GET /dashboard/health
+   * Get server health information
+   * NOTE: This must be before 'logs' route to avoid route conflict
+   */
+  @Get('health')
+  getHealth() {
+    return this.loggerService.getHealthInfo();
+  }
+
+  /**
+   * GET /dashboard/logs
+   * Get all logs with optional filtering
+   */
+  @Get('logs')
+  getLogs(
+    @Query('level') level?: LogLevel,
+    @Query('category') category?: LogCategory,
+    @Query('limit') limit?: string,
+    @Query('search') search?: string,
+  ) {
+    const limitNum = limit ? parseInt(limit, 10) : 1000;
+    return {
+      logs: this.loggerService.getLogs({
+        level,
+        category,
+        limit: limitNum,
+        search,
+      }),
+      count: this.loggerService.getLogCount(),
+    };
+  }
+
+  /**
+   * GET /dashboard/logs/count
+   * Get log statistics
+   */
+  @Get('logs/count')
+  getLogCount() {
+    return this.loggerService.getLogCount();
+  }
+
+  /**
+   * DELETE /dashboard/logs
+   * Clear all logs
+   */
+  @Delete('logs')
+  clearLogs() {
+    this.loggerService.clearLogs();
+    return { message: 'Logs cleared successfully' };
   }
 }
