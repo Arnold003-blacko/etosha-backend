@@ -6,10 +6,12 @@ import { AuthService } from "./auth.service";
 import { AuthController } from "./auth.controller";
 import { JwtStrategy } from "./jwt.strategy";
 import { PrismaModule } from "../prisma/prisma.module";
+import { DashboardModule } from "../dashboard/dashboard.module";
 
 @Module({
   imports: [
     PrismaModule,
+    DashboardModule, // Import to get LoggerService
     PassportModule.register({ defaultStrategy: "jwt" }),
     JwtModule.register({
       secret: process.env.JWT_SECRET ?? "replace_this_in_prod",

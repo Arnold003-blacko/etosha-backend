@@ -25,15 +25,49 @@ export interface LogEntry {
   message: string;
   timestamp: Date;
   metadata?: {
+    // Request tracking
+    requestId?: string;
     method?: string;
     url?: string;
     statusCode?: number;
     duration?: number;
+    isSlow?: boolean;
+    isError?: boolean;
+    
+    // User context
+    userId?: string;
+    userEmail?: string;
+    
+    // Network info
     origin?: string;
     userAgent?: string;
-    userId?: string;
+    ip?: string;
+    
+    // Request details
+    queryParams?: any;
+    routeParams?: any;
+    requestBody?: any;
+    responseSize?: number;
+    contentType?: string;
+    
+    // Error details
     error?: string;
-    stack?: string;
+    errorName?: string;
+    errorMessage?: string;
+    errorStack?: string;
+    validationErrors?: any;
+    
+    // Database/performance
+    dbQuery?: string;
+    dbDuration?: number;
+    
+    // Business events
+    eventType?: string;
+    eventData?: any;
+    
+    // Thresholds and warnings
+    threshold?: number;
+    
     [key: string]: any;
   };
 }
@@ -41,8 +75,60 @@ export interface LogEntry {
 @Injectable()
 export class LoggerService {
   private logs: LogEntry[] = [];
-  private maxLogs = 10000; // Keep last 10k logs
+  // Configurable max logs - defaults to 1000 (reduced from 10k for better performance)
+  private maxLogs = parseInt(process.env.LOG_MAX_ENTRIES || '1000', 10);
   private startTime = Date.now();
+  
+  // Logging configuration from environment variables
+  private readonly enableHttpLogging = process.env.ENABLE_HTTP_LOGGING !== 'false'; // Default: true
+  private readonly logLevel = (process.env.LOG_LEVEL || 'info').toLowerCase(); // 'debug' | 'info' | 'warn' | 'error'
+  private readonly logSampleRate = parseFloat(process.env.LOG_SAMPLE_RATE || '1.0'); // 0.0 to 1.0 (1.0 = log all, 0.1 = log 10%)
+  
+  // Skip logging for these paths (health checks, static assets, etc.)
+  private readonly skipPaths = [
+    '/health',
+    '/',
+    '/dashboard/health',
+    '/favicon.ico',
+  ];
+
+  /**
+   * Check if a log level should be logged based on configuration
+   */
+  private shouldLog(level: LogLevel): boolean {
+    const levelPriority: Record<LogLevel, number> = {
+      [LogLevel.DEBUG]: 0,
+      [LogLevel.INFO]: 1,
+      [LogLevel.HTTP]: 1,
+      [LogLevel.WARN]: 2,
+      [LogLevel.ERROR]: 3,
+    };
+
+    const configPriority: Record<string, number> = {
+      debug: 0,
+      info: 1,
+      warn: 2,
+      error: 3,
+    };
+
+    const minPriority = configPriority[this.logLevel] ?? 1;
+    return levelPriority[level] >= minPriority;
+  }
+
+  /**
+   * Check if URL should be logged (skip health checks, etc.)
+   */
+  private shouldLogUrl(url: string): boolean {
+    return !this.skipPaths.some(path => url === path || url.startsWith(path + '/'));
+  }
+
+  /**
+   * Check if request should be sampled (for performance)
+   */
+  private shouldSample(): boolean {
+    if (this.logSampleRate >= 1.0) return true;
+    return Math.random() < this.logSampleRate;
+  }
 
   /**
    * Add a log entry
@@ -53,6 +139,20 @@ export class LoggerService {
     message: string,
     metadata?: LogEntry['metadata'],
   ) {
+    // Skip if log level is below configured minimum
+    if (!this.shouldLog(level)) {
+      return;
+    }
+
+    // Skip HTTP logs if disabled
+    if (level === LogLevel.HTTP && !this.enableHttpLogging) {
+      return;
+    }
+
+    // Skip if URL is in skip list
+    if (metadata?.url && !this.shouldLogUrl(metadata.url)) {
+      return;
+    }
     const logEntry: LogEntry = {
       id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
       level,
@@ -98,6 +198,22 @@ export class LoggerService {
     duration: number,
     metadata?: Partial<LogEntry['metadata']>,
   ) {
+    // Skip if HTTP logging is disabled
+    if (!this.enableHttpLogging) {
+      return;
+    }
+
+    // Skip health checks and other non-essential paths
+    if (!this.shouldLogUrl(url)) {
+      return;
+    }
+
+    // Apply sampling for non-error requests (reduce load)
+    if (statusCode < 400 && !this.shouldSample()) {
+      return;
+    }
+
+    // Always log errors (status >= 400)
     // Determine category based on URL
     let category = LogCategory.HTTP;
     if (url.includes('/auth/') || url.includes('/login') || url.includes('/signup')) {
@@ -253,6 +369,29 @@ export class LoggerService {
   getHealthInfo() {
     const uptime = Date.now() - this.startTime;
     const memoryUsage = process.memoryUsage();
+    
+    // Get total system memory if available (Node.js 18+)
+    let totalMemory: number | null = null;
+    let freeMemory: number | null = null;
+    try {
+      // @ts-ignore - os.totalmem() and os.freemem() are available
+      const os = require('os');
+      totalMemory = Math.round(os.totalmem() / 1024 / 1024); // MB
+      freeMemory = Math.round(os.freemem() / 1024 / 1024); // MB
+    } catch (e) {
+      // Fallback if os module not available
+    }
+
+    // Calculate memory percentages
+    const rssMB = Math.round(memoryUsage.rss / 1024 / 1024);
+    const heapTotalMB = Math.round(memoryUsage.heapTotal / 1024 / 1024);
+    const heapUsedMB = Math.round(memoryUsage.heapUsed / 1024 / 1024);
+    const externalMB = Math.round(memoryUsage.external / 1024 / 1024);
+    
+    // Calculate heap usage percentage
+    const heapUsagePercent = heapTotalMB > 0 
+      ? Math.round((heapUsedMB / heapTotalMB) * 100) 
+      : 0;
 
     return {
       status: 'ok',
@@ -265,14 +404,39 @@ export class LoggerService {
         formatted: this.formatUptime(uptime),
       },
       memory: {
-        rss: Math.round(memoryUsage.rss / 1024 / 1024), // MB
-        heapTotal: Math.round(memoryUsage.heapTotal / 1024 / 1024), // MB
-        heapUsed: Math.round(memoryUsage.heapUsed / 1024 / 1024), // MB
-        external: Math.round(memoryUsage.external / 1024 / 1024), // MB
+        // RSS (Resident Set Size) - Actual memory used by the process
+        rss: rssMB,
+        // Heap memory (JavaScript objects)
+        heapTotal: heapTotalMB,
+        heapUsed: heapUsedMB,
+        heapUsagePercent: heapUsagePercent,
+        // External memory (C++ objects, buffers)
+        external: externalMB,
+        // System memory (if available)
+        systemTotal: totalMemory,
+        systemFree: freeMemory,
+        systemUsed: totalMemory && freeMemory ? totalMemory - freeMemory : null,
+        systemUsagePercent: totalMemory && freeMemory 
+          ? Math.round(((totalMemory - freeMemory) / totalMemory) * 100) 
+          : null,
+        // Array buffer memory
+        arrayBuffers: memoryUsage.arrayBuffers 
+          ? Math.round(memoryUsage.arrayBuffers / 1024 / 1024) 
+          : 0,
       },
       timestamp: new Date().toISOString(),
       nodeVersion: process.version,
       platform: process.platform,
+      // Environment info
+      env: {
+        nodeEnv: process.env.NODE_ENV || 'development',
+        // Check if running in Railway (they set RAILWAY_ENVIRONMENT)
+        isRailway: !!process.env.RAILWAY_ENVIRONMENT,
+        // Railway memory limit if set
+        railwayMemoryLimit: process.env.RAILWAY_MEMORY_LIMIT_MB 
+          ? parseInt(process.env.RAILWAY_MEMORY_LIMIT_MB, 10) 
+          : null,
+      },
     };
   }
 
