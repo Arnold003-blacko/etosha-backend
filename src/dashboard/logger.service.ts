@@ -244,10 +244,11 @@ export class LoggerService {
   /**
    * Log error
    */
-  error(message: string, error?: Error, category: LogCategory = LogCategory.SYSTEM) {
+  error(message: string, error?: Error, category: LogCategory = LogCategory.SYSTEM, metadata?: LogEntry['metadata']) {
     this.log(LogLevel.ERROR, category, message, {
       error: error?.message,
       stack: error?.stack,
+      ...metadata,
     });
   }
 
