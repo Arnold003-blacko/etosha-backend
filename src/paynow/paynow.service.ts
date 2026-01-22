@@ -105,7 +105,7 @@ export class PayNowService {
       returnurl: returnUrl,
       resulturl: resultUrl,
       status: 'Message',
-      authemail: authEmail,
+      // Omit authemail field entirely to prevent email auto-fill on PayNow website
     };
 
     const hashOrder = [
@@ -116,7 +116,6 @@ export class PayNowService {
       'returnurl',
       'resulturl',
       'status',
-      'authemail',
     ];
 
     payload.hash = this.generateHash(payload, hashOrder, integrationKey);
@@ -180,7 +179,7 @@ export class PayNowService {
       returnurl: returnUrl,
       resulturl: resultUrl,
       status: 'Message',
-      authemail: authEmail,
+      // Omit authemail field entirely to prevent email auto-fill on PayNow website
       phone,
       method: 'ecocash',
     };
@@ -194,7 +193,6 @@ export class PayNowService {
       'returnurl',
       'resulturl',
       'status',
-      'authemail',
       'phone',
       'method',
     ];

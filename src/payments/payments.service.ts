@@ -117,6 +117,25 @@ export class PaymentsService {
       throw new BadRequestException('Invalid amount');
     if (payable > Number(purchase.balance))
       throw new BadRequestException('Amount exceeds balance');
+    
+    // EcoCash has a maximum transaction limit of $500 USD
+    const ECOCASH_MAX_AMOUNT = 500;
+    if (payable > ECOCASH_MAX_AMOUNT) {
+      throw new BadRequestException(
+        `EcoCash payment limit is $${ECOCASH_MAX_AMOUNT} per transaction. Your amount of $${payable.toFixed(2)} exceeds this limit. You can pay $${ECOCASH_MAX_AMOUNT} now, then go to "My Plans" to complete the remaining payment.`
+      );
+    }
+
+    // Cancel any existing INITIATED payments for this purchase when starting a new payment
+    await this.prisma.payment.updateMany({
+      where: {
+        purchaseId: purchase.id,
+        status: PaymentStatus.INITIATED,
+      },
+      data: {
+        status: PaymentStatus.EXPIRED,
+      },
+    });
 
     const reference = `ETOSHA-${randomUUID()}`;
 
@@ -176,6 +195,25 @@ export class PaymentsService {
       throw new BadRequestException('Invalid amount');
     if (payable > Number(purchase.balance))
       throw new BadRequestException('Amount exceeds balance');
+    
+    // EcoCash has a maximum transaction limit of $500 USD
+    const ECOCASH_MAX_AMOUNT = 500;
+    if (payable > ECOCASH_MAX_AMOUNT) {
+      throw new BadRequestException(
+        `EcoCash payment limit is $${ECOCASH_MAX_AMOUNT} per transaction. Your amount of $${payable.toFixed(2)} exceeds this limit. You can pay $${ECOCASH_MAX_AMOUNT} now, then go to "My Plans" to complete the remaining payment.`
+      );
+    }
+
+    // Cancel any existing INITIATED payments for this purchase when starting a new payment
+    await this.prisma.payment.updateMany({
+      where: {
+        purchaseId: purchase.id,
+        status: PaymentStatus.INITIATED,
+      },
+      data: {
+        status: PaymentStatus.EXPIRED,
+      },
+    });
 
     const reference = `ETOSHA-${randomUUID()}`;
 
