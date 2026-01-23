@@ -16,6 +16,7 @@ import { PaymentsModule } from './payments/payments.module';
 import { PayNowModule } from './paynow/paynow.module';
 import { CheckoutModule } from './checkout/checkout.module';
 import { DashboardModule } from './dashboard/dashboard.module';
+import { TransactModule } from './transact/transact.module';
 
 @Module({
   controllers: [AppController],
@@ -42,6 +43,7 @@ import { DashboardModule } from './dashboard/dashboard.module';
     CheckoutModule,
     DeceasedModule,
     DashboardModule,
+    TransactModule,
   ],
 })
 export class AppModule {}
