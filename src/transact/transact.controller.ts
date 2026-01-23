@@ -5,19 +5,20 @@ import {
   Query,
   Body,
   Param,
-  UseGuards,
+  // UseGuards, // Disabled for development
   Req,
   HttpCode,
   HttpStatus,
 } from '@nestjs/common';
 import { TransactService } from './transact.service';
-import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+// import { JwtAuthGuard } from '../auth/jwt-auth.guard'; // Disabled for development
 import { SearchMembersDto } from './dto/search-members.dto';
 import { CashPaymentDto } from './dto/cash-payment.dto';
 import { CreateLegacyPlanDto } from './dto/legacy-plan.dto';
 
 @Controller('transact')
-@UseGuards(JwtAuthGuard) // All transact endpoints require authentication
+// Authentication disabled for development - will be enabled later
+// @UseGuards(JwtAuthGuard)
 export class TransactController {
   constructor(private readonly transactService: TransactService) {}
 
@@ -29,6 +30,7 @@ export class TransactController {
   @HttpCode(HttpStatus.OK)
   async searchMembers(@Query() dto: SearchMembersDto, @Req() req: any) {
     try {
+      // Authentication disabled for development
       const userId = req.user?.id || req.user?.sub || null;
       return await this.transactService.searchMembers(dto.q, userId);
     } catch (error) {
@@ -45,6 +47,7 @@ export class TransactController {
   @HttpCode(HttpStatus.OK)
   async getMember(@Param('memberId') memberId: string, @Req() req: any) {
     try {
+      // Authentication disabled for development
       const userId = req.user?.id || req.user?.sub || null;
       return await this.transactService.getMemberById(memberId, userId);
     } catch (error) {
@@ -60,6 +63,7 @@ export class TransactController {
   @HttpCode(HttpStatus.OK)
   async getMemberPurchases(@Param('memberId') memberId: string, @Req() req: any) {
     try {
+      // Authentication disabled for development
       const userId = req.user?.id || req.user?.sub || null;
       return await this.transactService.getMemberPurchases(memberId, userId);
     } catch (error) {
@@ -75,6 +79,7 @@ export class TransactController {
   @HttpCode(HttpStatus.CREATED)
   async createCashPayment(@Body() dto: CashPaymentDto, @Req() req: any) {
     try {
+      // Authentication disabled for development
       const staffUserId = req.user?.id || req.user?.sub || null;
       return await this.transactService.createCashPayment(dto, staffUserId);
     } catch (error) {
@@ -90,6 +95,7 @@ export class TransactController {
   @HttpCode(HttpStatus.CREATED)
   async createLegacyPlan(@Body() dto: CreateLegacyPlanDto, @Req() req: any) {
     try {
+      // Authentication disabled for development
       const staffUserId = req.user?.id || req.user?.sub || null;
       return await this.transactService.createLegacyPlan(dto, staffUserId);
     } catch (error) {
