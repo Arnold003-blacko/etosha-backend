@@ -14,5 +14,6 @@ import { DashboardModule } from '../dashboard/dashboard.module'; // For real-tim
   ],
   controllers: [PaymentsController],
   providers: [PaymentsService],
+  exports: [PaymentsService], // Export PaymentsService so other modules can use it
 })
 export class PaymentsModule {}

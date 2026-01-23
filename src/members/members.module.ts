@@ -11,5 +11,6 @@ import { DashboardModule } from '../dashboard/dashboard.module'; // For real-tim
   ],
   controllers: [MembersController],
   providers: [MembersService],
+  exports: [MembersService], // Export MembersService so other modules can use it
 })
 export class MembersModule {}

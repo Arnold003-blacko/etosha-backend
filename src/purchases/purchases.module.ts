@@ -11,5 +11,6 @@ import { DashboardModule } from '../dashboard/dashboard.module'; // For real-tim
   ],
   controllers: [PurchasesController],
   providers: [PurchasesService],
+  exports: [PurchasesService], // Export PurchasesService so other modules can use it
 })
 export class PurchasesModule {}
