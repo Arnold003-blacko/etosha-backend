@@ -179,7 +179,7 @@ export class PayNowService {
       returnurl: returnUrl,
       resulturl: resultUrl,
       status: 'Message',
-      // Omit authemail field entirely to prevent email auto-fill on PayNow website
+      authemail: authEmail, // Required for remote transactions
       phone,
       method: 'ecocash',
     };
@@ -193,6 +193,7 @@ export class PayNowService {
       'returnurl',
       'resulturl',
       'status',
+      'authemail',
       'phone',
       'method',
     ];
