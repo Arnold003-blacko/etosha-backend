@@ -4,6 +4,7 @@ import { DashboardController } from './dashboard.controller';
 import { DashboardService } from './dashboard.service';
 import { DashboardGateway } from './dashboard.gateway';
 import { LoggerService } from './logger.service';
+import { BackupService } from './backup.service';
 import { LoggingInterceptor } from './logging.interceptor';
 import { AllExceptionsFilter } from './exception-logger.filter';
 import { PrismaModule } from '../prisma/prisma.module';
@@ -15,6 +16,7 @@ import { PrismaModule } from '../prisma/prisma.module';
     DashboardService,
     DashboardGateway,
     LoggerService,
+    BackupService,
     // Only register interceptor if HTTP logging is enabled
     ...(process.env.ENABLE_HTTP_LOGGING !== 'false'
       ? [

@@ -5,20 +5,21 @@ import {
   Query,
   Body,
   Param,
-  // UseGuards, // Disabled for development
+  UseGuards,
   Req,
   HttpCode,
   HttpStatus,
+  BadRequestException,
 } from '@nestjs/common';
 import { TransactService } from './transact.service';
-// import { JwtAuthGuard } from '../auth/jwt-auth.guard'; // Disabled for development
+import { StaffJwtGuard } from '../staff-auth/staff-jwt.guard';
 import { SearchMembersDto } from './dto/search-members.dto';
 import { CashPaymentDto } from './dto/cash-payment.dto';
 import { CreateLegacyPlanDto } from './dto/legacy-plan.dto';
+import { StaffCreatePurchaseDto } from './dto/staff-create-purchase.dto';
 
 @Controller('transact')
-// Authentication disabled for development - will be enabled later
-// @UseGuards(JwtAuthGuard)
+@UseGuards(StaffJwtGuard)
 export class TransactController {
   constructor(private readonly transactService: TransactService) {}
 
@@ -30,7 +31,6 @@ export class TransactController {
   @HttpCode(HttpStatus.OK)
   async searchMembers(@Query() dto: SearchMembersDto, @Req() req: any) {
     try {
-      // Authentication disabled for development
       const userId = req.user?.id || req.user?.sub || null;
       return await this.transactService.searchMembers(dto.q, userId);
     } catch (error) {
@@ -47,7 +47,6 @@ export class TransactController {
   @HttpCode(HttpStatus.OK)
   async getMember(@Param('memberId') memberId: string, @Req() req: any) {
     try {
-      // Authentication disabled for development
       const userId = req.user?.id || req.user?.sub || null;
       return await this.transactService.getMemberById(memberId, userId);
     } catch (error) {
@@ -63,7 +62,6 @@ export class TransactController {
   @HttpCode(HttpStatus.OK)
   async getMemberPurchases(@Param('memberId') memberId: string, @Req() req: any) {
     try {
-      // Authentication disabled for development
       const userId = req.user?.id || req.user?.sub || null;
       return await this.transactService.getMemberPurchases(memberId, userId);
     } catch (error) {
@@ -72,19 +70,88 @@ export class TransactController {
   }
 
   /* =====================================================
-   * CREATE CASH PAYMENT
+   * INITIATE PURCHASE (WEB - STAFF)
+   * POST /transact/purchases/initiate
+   * ===================================================== */
+  @Post('purchases/initiate')
+  @HttpCode(HttpStatus.CREATED)
+  async initiatePurchase(
+    @Body() dto: StaffCreatePurchaseDto,
+    @Req() req: any,
+  ) {
+    const staffUserId = req.user?.id || req.user?.sub || null;
+    return this.transactService.initiatePurchaseForMember(dto, staffUserId);
+  }
+
+  /* =====================================================
+   * CREATE CASH PAYMENT (ADMIN/STAFF)
    * POST /transact/payments/cash
    * ===================================================== */
   @Post('payments/cash')
   @HttpCode(HttpStatus.CREATED)
   async createCashPayment(@Body() dto: CashPaymentDto, @Req() req: any) {
     try {
-      // Authentication disabled for development
       const staffUserId = req.user?.id || req.user?.sub || null;
       return await this.transactService.createCashPayment(dto, staffUserId);
     } catch (error) {
       throw error;
     }
+  }
+
+  /* =====================================================
+   * INITIATE PAYNOW PAYMENT (ADMIN/STAFF)
+   * POST /transact/payments/paynow
+   * ===================================================== */
+  @Post('payments/paynow')
+  @HttpCode(HttpStatus.OK)
+  async initiatePayNow(
+    @Body('purchaseId') purchaseId: string,
+    @Body('memberId') memberId: string,
+    @Body('amount') amount: number,
+    @Req() req: any,
+  ) {
+    if (!purchaseId || !memberId || !amount) {
+      throw new BadRequestException(
+        'purchaseId, memberId and amount are required',
+      );
+    }
+
+    const staffUserId = req.user?.id || req.user?.sub || null;
+    return await this.transactService.initiatePayNowPayment(
+      purchaseId,
+      memberId,
+      Number(amount),
+      staffUserId,
+    );
+  }
+
+  /* =====================================================
+   * INITIATE ECOCASH PUSH (ADMIN/STAFF)
+   * POST /transact/payments/ecocash
+   * ===================================================== */
+  @Post('payments/ecocash')
+  @HttpCode(HttpStatus.OK)
+  async initiateEcoCash(
+    @Body('purchaseId') purchaseId: string,
+    @Body('memberId') memberId: string,
+    @Body('phone') phone: string,
+    @Body('amount') amount: number,
+    @Req() req: any,
+  ) {
+    if (!purchaseId || !memberId || !phone || !amount) {
+      throw new BadRequestException(
+        'purchaseId, memberId, phone and amount are required',
+      );
+    }
+
+    const staffUserId = req.user?.id || req.user?.sub || null;
+    return await this.transactService.initiateEcoCashPush(
+      purchaseId,
+      memberId,
+      phone,
+      Number(amount),
+      staffUserId,
+    );
   }
 
   /* =====================================================
@@ -95,7 +162,6 @@ export class TransactController {
   @HttpCode(HttpStatus.CREATED)
   async createLegacyPlan(@Body() dto: CreateLegacyPlanDto, @Req() req: any) {
     try {
-      // Authentication disabled for development
       const staffUserId = req.user?.id || req.user?.sub || null;
       return await this.transactService.createLegacyPlan(dto, staffUserId);
     } catch (error) {

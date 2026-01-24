@@ -8,6 +8,7 @@ import { DeceasedModule } from './deceased/deceased.module';
 import { PrismaModule } from './prisma/prisma.module';
 import { MembersModule } from './members/members.module';
 import { AuthModule } from './auth/auth.module';
+import { StaffAuthModule } from './staff-auth/staff-auth.module';
 import { ItemsModule } from './items/items.module';
 import { YearPlansModule } from './year-plans/year-plans.module';
 import { UpcomingModule } from './upcoming/upcoming.module';
@@ -33,6 +34,7 @@ import { TransactModule } from './transact/transact.module';
 
     // Feature modules
     AuthModule,
+    StaffAuthModule,
     MembersModule,
     ItemsModule,
     YearPlansModule,

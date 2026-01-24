@@ -58,7 +58,7 @@ model Product {
   title          String
   slug           String?         @unique
   priceText      String?
-  amount         Decimal         @db.Decimal(10,2)
+  amount         Decimal         @db.Decimal(10, 2)
   currency       String
   description    String?         @db.Text
   imagePath      String?
@@ -69,34 +69,82 @@ model Product {
   createdAt      DateTime        @default(now())
   updatedAt      DateTime        @updatedAt
 
-  purchases      Purchase[]
-  isAvailable    Boolean  @default(true)
-  @@map("items")
+  purchases   Purchase[]
+  isAvailable Boolean    @default(true)
+
   @@index([category, orderNum])
+  @@map("items")
+}
+
+////////////////////
+/// STAFF (ADMIN WEB)
+////////////////////
+
+enum StaffLocation {
+  HARARE_OFFICE
+  GARDEN_SITE
+}
+
+model Staff {
+  id          String        @id @default(cuid())
+  firstName   String
+  lastName    String
+  email       String        @unique
+  phone       String
+  nationalId  String        @unique
+  dateOfBirth DateTime
+  address     String
+  location    StaffLocation
+
+  /// Numeric level used for authorization:
+  /// 1 = general worker
+  /// 2 = supervisor
+  /// 3 = accountant
+  /// 4 = head
+  /// 5 = managing director
+  level Int
+
+  /// System-wide admin (overall seer). Only true for one or very few users.
+  isSystemAdmin Boolean @default(false)
+
+  /// Whether this staff account is allowed to log in
+  isActive Boolean @default(true)
+
+  /// Whether this staff account has been approved by a system admin
+  isApproved Boolean @default(false)
+
+  /// Securely hashed password
+  password String
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([email])
+  @@index([level])
 }
 
 model Member {
-  id              String   @id @default(cuid())
-  firstName       String
-  lastName        String
-  country         String
-  address         String
-  city            String
-  email           String   @unique
-  phone           String
-  password        String
-  nationalId      String?  @unique
-  dateOfBirth     DateTime
-  gender          String?
+  id          String   @id @default(cuid())
+  firstName   String
+  lastName    String
+  country     String
+  address     String
+  city        String
+  email       String   @unique
+  phone       String
+  password    String
+  nationalId  String?  @unique
+  dateOfBirth DateTime
+  gender      String?
 
-  expoPushToken   String?
+  expoPushToken String?
 
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  purchases       Purchase[]
-  payments        Payment[]
-  nextOfKin       NextOfKin?
+  purchases Purchase[]
+  payments  Payment[]
+  nextOfKin NextOfKin?
 
   @@index([email])
 }
@@ -106,34 +154,34 @@ model Member {
 ////////////////////
 
 model Purchase {
-  id            String         @id @default(uuid()) @db.Uuid
-  memberId      String
-  productId     String         @db.Uuid
+  id        String @id @default(uuid()) @db.Uuid
+  memberId  String
+  productId String @db.Uuid
 
-  purchaseType  PurchaseType
-  futureFor     FutureFor?
+  purchaseType PurchaseType
+  futureFor    FutureFor?
 
-  totalAmount   Decimal        @db.Decimal(10,2)
-  paidAmount    Decimal        @default(0) @db.Decimal(10,2)
-  balance       Decimal        @db.Decimal(10,2)
+  totalAmount Decimal @db.Decimal(10, 2)
+  paidAmount  Decimal @default(0) @db.Decimal(10, 2)
+  balance     Decimal @db.Decimal(10, 2)
 
-  status        PurchaseStatus @default(PENDING_PAYMENT)
+  status PurchaseStatus @default(PENDING_PAYMENT)
 
-  paidAt        DateTime?
+  paidAt DateTime?
 
-  nextDueAt        DateTime?
-  lastPaidAt       DateTime?
-  completedAt      DateTime?
-  reminderEnabled  Boolean?    @default(true)
+  nextDueAt       DateTime?
+  lastPaidAt      DateTime?
+  completedAt     DateTime?
+  reminderEnabled Boolean?  @default(true)
 
-  createdAt     DateTime       @default(now())
-  updatedAt     DateTime       @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  member        Member         @relation(fields: [memberId], references: [id])
-  product       Product        @relation(fields: [productId], references: [id])
+  member  Member  @relation(fields: [memberId], references: [id])
+  product Product @relation(fields: [productId], references: [id])
 
-  payments      Payment[]
-  deceased      Deceased?
+  payments Payment[]
+  deceased Deceased?
 
   redeemedByMemberId String?
   redeemedAt         DateTime?
@@ -151,24 +199,24 @@ model Purchase {
 ////////////////////
 
 model Payment {
-  id          String        @id @default(uuid()) @db.Uuid
-  purchaseId  String        @db.Uuid
-  memberId    String
+  id         String @id @default(uuid()) @db.Uuid
+  purchaseId String @db.Uuid
+  memberId   String
 
-  amount      Decimal       @db.Decimal(10,2)
-  currency    String        @default("USD")
-  method      String        @default("PAYNOW")
+  amount   Decimal @db.Decimal(10, 2)
+  currency String  @default("USD")
+  method   String  @default("PAYNOW")
 
-  reference   String        @unique
-  status      PaymentStatus @default(INITIATED)
+  reference String        @unique
+  status    PaymentStatus @default(INITIATED)
 
-  createdAt   DateTime      @default(now())
-  updatedAt   DateTime      @updatedAt
-  paidAt      DateTime?
-  pollUrl     String?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  paidAt    DateTime?
+  pollUrl   String?
 
-  purchase    Purchase      @relation(fields: [purchaseId], references: [id])
-  member      Member        @relation(fields: [memberId], references: [id])
+  purchase Purchase @relation(fields: [purchaseId], references: [id])
+  member   Member   @relation(fields: [memberId], references: [id])
 
   @@index([memberId])
   @@index([memberId, createdAt])
@@ -181,8 +229,8 @@ model Payment {
 ////////////////////
 
 model Deceased {
-  id             String   @id @default(uuid()) @db.Uuid
-  purchaseId     String   @unique @db.Uuid
+  id         String @id @default(uuid()) @db.Uuid
+  purchaseId String @unique @db.Uuid
 
   fullName       String
   dateOfBirth    DateTime
@@ -194,63 +242,63 @@ model Deceased {
   dateOfDeath    DateTime
   expectedBurial DateTime?
 
-  purchase       Purchase @relation(fields: [purchaseId], references: [id])
+  purchase Purchase @relation(fields: [purchaseId], references: [id])
 }
 
 model NextOfKin {
-  id            String   @id @default(uuid()) @db.Uuid
-  memberId      String   @unique
+  id       String @id @default(uuid()) @db.Uuid
+  memberId String @unique
 
-  fullName      String
-  relationship  String
-  phone         String
-  email         String?
-  address       String
+  fullName     String
+  relationship String
+  phone        String
+  email        String?
+  address      String
 
-  member        Member   @relation(fields: [memberId], references: [id])
+  member Member @relation(fields: [memberId], references: [id])
 
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([memberId])
 }
 
 model YearPlan {
-  id                Int      @id @default(autoincrement())
-  name              String   @unique
-  currency          String   @default("USD")
-  months            Int
+  id       Int    @id @default(autoincrement())
+  name     String @unique
+  currency String @default("USD")
+  months   Int
 
-  muhacha_under60   Decimal  @db.Decimal(10,2)
-  muhacha_over60    Decimal? @db.Decimal(10,2)
+  muhacha_under60 Decimal  @db.Decimal(10, 2)
+  muhacha_over60  Decimal? @db.Decimal(10, 2)
 
-  lawn_under60      Decimal  @db.Decimal(10,2)
-  lawn_over60       Decimal? @db.Decimal(10,2)
+  lawn_under60 Decimal  @db.Decimal(10, 2)
+  lawn_over60  Decimal? @db.Decimal(10, 2)
 
-  donhodzo_under60  Decimal  @db.Decimal(10,2)
-  donhodzo_over60   Decimal? @db.Decimal(10,2)
+  donhodzo_under60 Decimal  @db.Decimal(10, 2)
+  donhodzo_over60  Decimal? @db.Decimal(10, 2)
 
-  family_under60    Decimal  @db.Decimal(10,2)
-  family_over60     Decimal? @db.Decimal(10,2)
+  family_under60 Decimal  @db.Decimal(10, 2)
+  family_over60  Decimal? @db.Decimal(10, 2)
 
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  purchases         Purchase[]
+  purchases Purchase[]
 
   @@map("year_plans")
 }
 
 model Upcoming {
-  id          Int      @id @default(autoincrement())
+  id          Int    @id @default(autoincrement())
   heading     String
   description String
   imagePath   String
   orderNum    Int
 
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  @@map("upcoming")
   @@index([orderNum])
+  @@map("upcoming")
 }

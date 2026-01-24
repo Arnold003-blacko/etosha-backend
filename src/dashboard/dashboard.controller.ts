@@ -1,12 +1,17 @@
-import { Controller, Get, Query, Post, Body, Delete } from '@nestjs/common';
+import { Controller, Get, Query, Post, Body, Delete, Res, UseGuards } from '@nestjs/common';
+import { Response } from 'express';
 import { DashboardService } from './dashboard.service';
 import { LoggerService, LogLevel, LogCategory } from './logger.service';
+import { BackupService } from './backup.service';
+import { StaffJwtGuard } from '../staff-auth/staff-jwt.guard';
 
 @Controller('dashboard')
+@UseGuards(StaffJwtGuard)
 export class DashboardController {
   constructor(
     private readonly dashboardService: DashboardService,
     private readonly loggerService: LoggerService,
+    private readonly backupService: BackupService,
   ) {}
 
   /* ============================
@@ -111,5 +116,29 @@ export class DashboardController {
   clearLogs() {
     this.loggerService.clearLogs();
     return { message: 'Logs cleared successfully' };
+  }
+
+  /**
+   * GET /dashboard/backup
+   * Download database backup as SQL file
+   */
+  @Get('backup')
+  async downloadBackup(@Res() res: Response) {
+    try {
+      const sql = await this.backupService.createBackup();
+      const filename = this.backupService.getBackupFilename();
+
+      res.setHeader('Content-Type', 'application/sql');
+      res.setHeader(
+        'Content-Disposition',
+        `attachment; filename="${filename}"`,
+      );
+      res.send(sql);
+    } catch (error) {
+      res.status(500).json({
+        error: 'Failed to create backup',
+        message: error instanceof Error ? error.message : 'Unknown error',
+      });
+    }
   }
 }

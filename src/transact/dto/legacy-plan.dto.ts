@@ -1,7 +1,8 @@
-import { IsString, IsNumber, IsUUID, IsOptional, Min } from 'class-validator';
+import { IsString, IsNumber, IsUUID, IsOptional, Min, Matches } from 'class-validator';
 
 export class CreateLegacyPlanDto {
-  @IsUUID('4', { message: 'Invalid member ID format' })
+  @IsString({ message: 'Member ID must be a string' })
+  @Matches(/^[a-z0-9]{20,30}$/i, { message: 'Invalid member ID format' })
   memberId: string;
 
   @IsUUID('4', { message: 'Invalid product ID format' })

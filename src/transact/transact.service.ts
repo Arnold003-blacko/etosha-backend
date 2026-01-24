@@ -14,6 +14,7 @@ import { DashboardGateway } from '../dashboard/dashboard.gateway';
 import { LoggerService, LogCategory } from '../dashboard/logger.service';
 import { CashPaymentDto } from './dto/cash-payment.dto';
 import { CreateLegacyPlanDto } from './dto/legacy-plan.dto';
+import { StaffCreatePurchaseDto } from './dto/staff-create-purchase.dto';
 import { PurchaseStatus } from '@prisma/client';
 
 @Injectable()
@@ -590,6 +591,293 @@ export class TransactService {
       );
 
       throw new BadRequestException('Failed to create legacy plan');
+    }
+  }
+
+  /* =====================================================
+   * INITIATE PURCHASE (WEB - STAFF)
+   * Reuses PurchasesService.initiatePurchase so logic matches the app.
+   * ===================================================== */
+  async initiatePurchaseForMember(
+    dto: StaffCreatePurchaseDto,
+    staffUserId?: string,
+  ) {
+    const { memberId, ...purchaseDto } = dto;
+
+    // Validate member exists (and log via existing helper)
+    await this.getMemberById(memberId, staffUserId);
+
+    try {
+      this.logger.info(
+        `[TRANSACT] Staff initiating purchase for member: ${memberId}`,
+        LogCategory.SYSTEM,
+        {
+          eventType: 'transact_staff_initiate_purchase',
+          memberId,
+          productId: purchaseDto.productId,
+          purchaseType: purchaseDto.purchaseType,
+          yearPlanId: purchaseDto.yearPlanId,
+          staffUserId,
+        },
+      );
+
+      const purchase = await this.purchasesService.initiatePurchase(
+        purchaseDto,
+        memberId,
+      );
+
+      return purchase;
+    } catch (error) {
+      this.logger.error(
+        `[TRANSACT] Staff purchase initiation failed: ${
+          error instanceof Error ? error.message : 'Unknown error'
+        }`,
+        error instanceof Error ? error : new Error(String(error)),
+        LogCategory.SYSTEM,
+        {
+          eventType: 'transact_staff_initiate_purchase_error',
+          memberId,
+          productId: dto.productId,
+          purchaseType: dto.purchaseType,
+          yearPlanId: dto.yearPlanId,
+          staffUserId,
+        },
+      );
+
+      throw new BadRequestException('Failed to initiate purchase');
+    }
+  }
+
+  /* =====================================================
+   * INITIATE PAYNOW PAYMENT (ADMIN/STAFF)
+   * ===================================================== */
+  async initiatePayNowPayment(
+    purchaseId: string,
+    memberId: string,
+    amount: number,
+    staffUserId?: string,
+  ) {
+    const startTime = Date.now();
+
+    // Validate UUIDs
+    if (!purchaseId || typeof purchaseId !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(purchaseId)) {
+      throw new BadRequestException('Invalid purchase ID format');
+    }
+
+    if (!memberId || typeof memberId !== 'string' || memberId.length < 10) {
+      throw new BadRequestException('Invalid member ID format');
+    }
+
+    try {
+      this.logger.info(
+        `[TRANSACT] PayNow payment initiated: $${amount} for purchase ${purchaseId}`,
+        LogCategory.PAYMENT,
+        {
+          eventType: 'transact_paynow_payment_initiated',
+          purchaseId,
+          memberId,
+          amount,
+          staffUserId,
+        },
+      );
+
+      // Verify purchase exists and belongs to member
+      const purchase = await this.prisma.purchase.findUnique({
+        where: { id: purchaseId },
+      });
+
+      if (!purchase) {
+        throw new NotFoundException('Purchase not found');
+      }
+
+      if (purchase.memberId !== memberId) {
+        throw new ForbiddenException('Purchase does not belong to this member');
+      }
+
+      if (purchase.status === PurchaseStatus.PAID) {
+        throw new BadRequestException('Purchase is already fully paid');
+      }
+
+      // Validate amount
+      const payable = Number(amount);
+      if (!payable || payable <= 0) {
+        throw new BadRequestException('Invalid payment amount');
+      }
+
+      const balance = Number(purchase.balance);
+      if (payable > balance) {
+        throw new BadRequestException(`Amount exceeds balance of $${balance.toFixed(2)}`);
+      }
+
+      // Use PaymentsService to initiate PayNow payment
+      const result = await this.paymentsService.initiatePayNowPayment(
+        purchaseId,
+        memberId, // Staff can pay for any member
+        payable,
+      );
+
+      const duration = Date.now() - startTime;
+
+      this.logger.info(
+        `[TRANSACT] PayNow payment initiated successfully`,
+        LogCategory.PAYMENT,
+        {
+          eventType: 'transact_paynow_payment_success',
+          purchaseId,
+          memberId,
+          amount: payable,
+          reference: result.reference,
+          duration,
+          staffUserId,
+        },
+      );
+
+      return result;
+    } catch (error) {
+      const duration = Date.now() - startTime;
+
+      if (
+        error instanceof NotFoundException ||
+        error instanceof ForbiddenException ||
+        error instanceof BadRequestException
+      ) {
+        throw error;
+      }
+
+      this.logger.error(
+        `[TRANSACT] PayNow payment error: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        error instanceof Error ? error : new Error(String(error)),
+        LogCategory.PAYMENT,
+        {
+          eventType: 'transact_paynow_payment_error',
+          purchaseId,
+          memberId,
+          amount,
+          duration,
+          staffUserId,
+        },
+      );
+
+      throw new BadRequestException('Failed to initiate PayNow payment');
+    }
+  }
+
+  /* =====================================================
+   * INITIATE ECOCASH PUSH (ADMIN/STAFF)
+   * ===================================================== */
+  async initiateEcoCashPush(
+    purchaseId: string,
+    memberId: string,
+    phone: string,
+    amount: number,
+    staffUserId?: string,
+  ) {
+    const startTime = Date.now();
+
+    // Validate UUIDs
+    if (!purchaseId || typeof purchaseId !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(purchaseId)) {
+      throw new BadRequestException('Invalid purchase ID format');
+    }
+
+    if (!memberId || typeof memberId !== 'string' || memberId.length < 10) {
+      throw new BadRequestException('Invalid member ID format');
+    }
+
+    try {
+      this.logger.info(
+        `[TRANSACT] EcoCash payment initiated: $${amount} for purchase ${purchaseId}`,
+        LogCategory.PAYMENT,
+        {
+          eventType: 'transact_ecocash_payment_initiated',
+          purchaseId,
+          memberId,
+          phone,
+          amount,
+          staffUserId,
+        },
+      );
+
+      // Verify purchase exists and belongs to member
+      const purchase = await this.prisma.purchase.findUnique({
+        where: { id: purchaseId },
+      });
+
+      if (!purchase) {
+        throw new NotFoundException('Purchase not found');
+      }
+
+      if (purchase.memberId !== memberId) {
+        throw new ForbiddenException('Purchase does not belong to this member');
+      }
+
+      if (purchase.status === PurchaseStatus.PAID) {
+        throw new BadRequestException('Purchase is already fully paid');
+      }
+
+      // Validate amount
+      const payable = Number(amount);
+      if (!payable || payable <= 0) {
+        throw new BadRequestException('Invalid payment amount');
+      }
+
+      const balance = Number(purchase.balance);
+      if (payable > balance) {
+        throw new BadRequestException(`Amount exceeds balance of $${balance.toFixed(2)}`);
+      }
+
+      // Use PaymentsService to initiate EcoCash payment
+      const result = await this.paymentsService.initiateEcoCashPush(
+        purchaseId,
+        memberId, // Staff can pay for any member
+        phone,
+        payable,
+      );
+
+      const duration = Date.now() - startTime;
+
+      this.logger.info(
+        `[TRANSACT] EcoCash payment initiated successfully`,
+        LogCategory.PAYMENT,
+        {
+          eventType: 'transact_ecocash_payment_success',
+          purchaseId,
+          memberId,
+          phone,
+          amount: payable,
+          reference: result.reference,
+          duration,
+          staffUserId,
+        },
+      );
+
+      return result;
+    } catch (error) {
+      const duration = Date.now() - startTime;
+
+      if (
+        error instanceof NotFoundException ||
+        error instanceof ForbiddenException ||
+        error instanceof BadRequestException
+      ) {
+        throw error;
+      }
+
+      this.logger.error(
+        `[TRANSACT] EcoCash payment error: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        error instanceof Error ? error : new Error(String(error)),
+        LogCategory.PAYMENT,
+        {
+          eventType: 'transact_ecocash_payment_error',
+          purchaseId,
+          memberId,
+          phone,
+          amount,
+          duration,
+          staffUserId,
+        },
+      );
+
+      throw new BadRequestException('Failed to initiate EcoCash payment');
     }
   }
 }
