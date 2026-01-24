@@ -9,15 +9,15 @@ RUN apt-get update && \
 # Set working directory
 WORKDIR /app
 
-# Copy ONLY backend package files (avoid mixing with web lockfile)
-COPY backend/package.json backend/package-lock.json ./
-COPY backend/prisma ./prisma/
+# Copy backend package files (context is already /backend when building)
+COPY package.json package-lock.json ./
+COPY prisma ./prisma/
 
 # Install all dependencies (including dev dependencies for build)
 RUN npm ci
 
 # Copy backend application files
-COPY backend/. .
+COPY . .
 
 # Build the application
 RUN npm run build
