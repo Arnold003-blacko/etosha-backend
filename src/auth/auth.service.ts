@@ -43,13 +43,22 @@ export class AuthService {
 
       const hashedPassword = await bcrypt.hash(password, 10);
 
+      // Normalize extra fields (especially dateOfBirth) before persisting
+      const normalizedExtra: any = { ...extra };
+      if (normalizedExtra.dateOfBirth) {
+        normalizedExtra.dateOfBirth =
+          normalizedExtra.dateOfBirth instanceof Date
+            ? normalizedExtra.dateOfBirth
+            : new Date(normalizedExtra.dateOfBirth);
+      }
+
       const member = await this.prisma.member.create({
         data: {
           firstName,
           lastName,
           email,
           password: hashedPassword,
-          ...extra,
+          ...normalizedExtra,
         },
         select: {
           id: true,

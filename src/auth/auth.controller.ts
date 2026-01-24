@@ -11,14 +11,36 @@ export class AuthController {
 
   @Post('register')
   async register(@Body() body: CreateMemberDto) {
-    const { firstName, lastName, email, password, city, country, address, phone } = body as any;
+    const {
+      firstName,
+      lastName,
+      email,
+      password,
+      city,
+      country,
+      address,
+      phone,
+      nationalId,
+      dateOfBirth,
+      gender,
+    } = body as any;
+
     const extra: any = {};
     if (city) extra.city = city;
     if (country) extra.country = country;
     if (address) extra.address = address;
     if (phone) extra.phone = phone;
+    if (nationalId) extra.nationalId = nationalId;
+    if (dateOfBirth) extra.dateOfBirth = new Date(dateOfBirth);
+    if (gender) extra.gender = gender;
 
-    return this.authService.register(firstName, lastName, email, password, extra);
+    return this.authService.register(
+      firstName,
+      lastName,
+      email,
+      password,
+      extra,
+    );
   }
 
   @Post('login')
