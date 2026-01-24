@@ -1,5 +1,5 @@
 import { Controller, Get, Query, Post, Body, Delete, Res, UseGuards } from '@nestjs/common';
-import { Response } from 'express';
+import type { Response } from 'express';
 import { DashboardService } from './dashboard.service';
 import { LoggerService, LogLevel, LogCategory } from './logger.service';
 import { BackupService } from './backup.service';
