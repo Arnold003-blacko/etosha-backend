@@ -57,6 +57,7 @@ export class PaymentsService {
 
     const now = new Date();
     const newBalance = Number(purchase.balance) - amount;
+    const method = dto.method ?? 'CASH';
 
     await this.prisma.$transaction([
       this.prisma.payment.create({
@@ -64,6 +65,7 @@ export class PaymentsService {
           purchaseId: purchase.id,
           memberId,
           amount,
+          method,
           reference: `LOCAL-${randomUUID()}`,
           status: PaymentStatus.SUCCESS,
           paidAt: now,

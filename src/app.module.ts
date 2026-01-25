@@ -18,6 +18,8 @@ import { PayNowModule } from './paynow/paynow.module';
 import { CheckoutModule } from './checkout/checkout.module';
 import { DashboardModule } from './dashboard/dashboard.module';
 import { TransactModule } from './transact/transact.module';
+import { StaffModule } from './staff/staff.module';
+import { ClientsModule } from './clients/clients.module';
 
 @Module({
   controllers: [AppController],
@@ -35,7 +37,9 @@ import { TransactModule } from './transact/transact.module';
     // Feature modules
     AuthModule,
     StaffAuthModule,
+    StaffModule,
     MembersModule,
+    ClientsModule,
     ItemsModule,
     YearPlansModule,
     UpcomingModule,

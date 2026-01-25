@@ -1,4 +1,4 @@
-import { IsUUID, IsNumber, Min, IsOptional } from 'class-validator';
+import { IsUUID, IsNumber, Min, IsOptional, IsString } from 'class-validator';
 import { Type } from 'class-transformer';
 
 export class CreatePaymentDto {
@@ -10,4 +10,13 @@ export class CreatePaymentDto {
   @IsNumber()
   @Min(1)
   amount?: number;
+
+  /**
+   * Optional internal payment method override.
+   * Examples: 'CASH', 'MANUAL'.
+   * If omitted, defaults to 'CASH' for internal payments.
+   */
+  @IsOptional()
+  @IsString()
+  method?: string;
 }

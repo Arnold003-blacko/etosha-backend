@@ -362,14 +362,22 @@ export class TransactService {
 
       const balance = Number(purchase.balance);
       if (amount > balance) {
-        throw new BadRequestException(`Amount exceeds balance of $${balance.toFixed(2)}`);
+        throw new BadRequestException(
+          `Amount exceeds balance of $${balance.toFixed(2)}`,
+        );
       }
 
-      // Create cash payment using PaymentsService
+      // Determine internal method:
+      // - CASH   → in-person cash at counter
+      // - MANUAL → client paid externally; staff is just recording it
+      const internalMethod = dto.method === 'MANUAL' ? 'MANUAL' : 'CASH';
+
+      // Create internal payment using PaymentsService
       await this.paymentsService.createPayment(
         {
           purchaseId: dto.purchaseId,
           amount: amount,
+          method: internalMethod,
         },
         dto.memberId, // Staff can pay for any member
       );
