@@ -1,4 +1,4 @@
-import { Controller, Get, Query, Post, Body, Delete, Res, UseGuards } from '@nestjs/common';
+import { Controller, Get, Query, Post, Body, Delete, Res, UseGuards, BadRequestException } from '@nestjs/common';
 import type { Response } from 'express';
 import { DashboardService } from './dashboard.service';
 import { LoggerService, LogLevel, LogCategory } from './logger.service';
@@ -60,6 +60,17 @@ export class DashboardController {
   @Get('debt-control')
   getDebtControl() {
     return this.dashboardService.getDebtControl();
+  }
+
+  /* ============================
+   * GET MEMBER FINANCIAL STATEMENT (ADMIN)
+   * ============================ */
+  @Get('accounts/statement')
+  getMemberFinancialStatement(@Query('memberId') memberId: string) {
+    if (!memberId) {
+      throw new BadRequestException('Member ID is required');
+    }
+    return this.dashboardService.getMemberFinancialStatement(memberId);
   }
 
   /* ============================

@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import {
   PaymentStatus,
@@ -802,5 +802,168 @@ export class DashboardService {
     debtRecords.sort((a, b) => b.amountOwedThisMonth - a.amountOwedThisMonth);
 
     return debtRecords;
+  }
+
+  /* =====================================================
+   * GET MEMBER FINANCIAL STATEMENT
+   * Returns a complete financial statement for a member
+   * including all purchases and payments
+   * ===================================================== */
+  async getMemberFinancialStatement(memberId: string) {
+    // Get member info
+    const member = await this.prisma.member.findUnique({
+      where: { id: memberId },
+      select: {
+        id: true,
+        firstName: true,
+        lastName: true,
+        email: true,
+        phone: true,
+        country: true,
+        city: true,
+        address: true,
+        nationalId: true,
+        dateOfBirth: true,
+        createdAt: true,
+      },
+    });
+
+    if (!member) {
+      throw new NotFoundException('Member not found');
+    }
+
+    // Get all purchases for this member
+    const purchases = await this.prisma.purchase.findMany({
+      where: { memberId },
+      include: {
+        product: {
+          select: {
+            id: true,
+            title: true,
+            category: true,
+            pricingSection: true,
+            amount: true,
+            currency: true,
+          },
+        },
+        payments: {
+          where: {
+            status: PaymentStatus.SUCCESS,
+          },
+          orderBy: { paidAt: 'asc' },
+          select: {
+            id: true,
+            amount: true,
+            currency: true,
+            method: true,
+            reference: true,
+            paidAt: true,
+            createdAt: true,
+          },
+        },
+        yearPlan: {
+          select: {
+            id: true,
+            name: true,
+            months: true,
+          },
+        },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    // Calculate totals
+    let totalPurchases = 0;
+    let totalPaid = 0;
+    let totalBalance = 0;
+
+    const purchaseStatements = purchases.map((purchase) => {
+      const totalAmount = Number(purchase.totalAmount);
+      const paidAmount = Number(purchase.paidAmount);
+      const balance = Number(purchase.balance);
+
+      totalPurchases += totalAmount;
+      totalPaid += paidAmount;
+      totalBalance += balance;
+
+      // Create transaction entries for this purchase
+      const transactions: any[] = [];
+
+      // Add purchase entry (debit)
+      transactions.push({
+        type: 'PURCHASE',
+        description: `Purchase: ${purchase.product.title}`,
+        date: purchase.createdAt,
+        debit: totalAmount,
+        credit: 0,
+        reference: purchase.id,
+        purchaseId: purchase.id,
+      });
+
+      // Add payment entries (credits)
+      purchase.payments.forEach((payment) => {
+        transactions.push({
+          type: 'PAYMENT',
+          description: `Payment - ${payment.method}`,
+          date: payment.paidAt || payment.createdAt,
+          debit: 0,
+          credit: Number(payment.amount),
+          reference: payment.reference,
+          purchaseId: purchase.id,
+          paymentId: payment.id,
+        });
+      });
+
+      return {
+        purchaseId: purchase.id,
+        product: {
+          title: purchase.product.title,
+          category: purchase.product.category,
+          pricingSection: purchase.product.pricingSection,
+        },
+        purchaseType: purchase.purchaseType,
+        purchaseDate: purchase.createdAt,
+        totalAmount,
+        paidAmount,
+        balance,
+        status: purchase.status,
+        paidAt: purchase.paidAt,
+        yearPlan: purchase.yearPlan,
+        transactions,
+      };
+    });
+
+    // Sort all transactions chronologically
+    const allTransactions = purchaseStatements
+      .flatMap((ps) => ps.transactions)
+      .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+
+    // Calculate running balance
+    let runningBalance = 0;
+    const transactionsWithBalance = allTransactions.map((txn) => {
+      runningBalance += txn.debit - txn.credit;
+      return {
+        ...txn,
+        balance: runningBalance,
+      };
+    });
+
+    return {
+      member: {
+        ...member,
+        dateOfBirth: member.dateOfBirth.toISOString(),
+        createdAt: member.createdAt.toISOString(),
+      },
+      statementDate: new Date().toISOString(),
+      summary: {
+        totalPurchases,
+        totalPaid,
+        totalBalance,
+        totalTransactions: allTransactions.length,
+        totalPurchasesCount: purchases.length,
+      },
+      purchases: purchaseStatements,
+      transactions: transactionsWithBalance,
+    };
   }
 }
