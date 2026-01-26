@@ -74,6 +74,25 @@ export class DashboardController {
   }
 
   /* ============================
+   * GET MONTHLY INCOME STATEMENT (ADMIN)
+   * ============================ */
+  @Get('accounts/income-statement')
+  getMonthlyIncomeStatement(
+    @Query('year') year?: string,
+    @Query('month') month?: string,
+  ) {
+    const now = new Date();
+    const yearNum = year ? parseInt(year, 10) : now.getFullYear();
+    const monthNum = month ? parseInt(month, 10) : now.getMonth() + 1;
+
+    if (isNaN(yearNum) || yearNum < 2000 || yearNum > 2100) {
+      throw new BadRequestException('Invalid year');
+    }
+
+    return this.dashboardService.getMonthlyIncomeStatement(yearNum, monthNum);
+  }
+
+  /* ============================
    * LOGS & HEALTH MONITORING
    * ============================ */
   

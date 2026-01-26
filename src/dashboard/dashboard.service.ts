@@ -1,10 +1,11 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import {
   PaymentStatus,
   PurchaseStatus,
   PurchaseType,
   BurialStatus,
+  CommissionStatus,
 } from '@prisma/client';
 import { resolveMatrixPrice } from '../pricing/pricing.service';
 
@@ -964,6 +965,160 @@ export class DashboardService {
       },
       purchases: purchaseStatements,
       transactions: transactionsWithBalance,
+    };
+  }
+
+  /* =====================================================
+   * GET MONTHLY INCOME STATEMENT
+   * Returns a complete income statement for a specific month
+   * including revenue, expenses (commissions), and net income
+   * ===================================================== */
+  async getMonthlyIncomeStatement(year: number, month: number) {
+    // Validate month (1-12)
+    if (month < 1 || month > 12) {
+      throw new BadRequestException('Month must be between 1 and 12');
+    }
+
+    // Calculate start and end of the month
+    const startOfMonth = new Date(year, month - 1, 1);
+    startOfMonth.setHours(0, 0, 0, 0);
+    
+    const endOfMonth = new Date(year, month, 0);
+    endOfMonth.setHours(23, 59, 59, 999);
+
+    // Get all successful payments for the month
+    const payments = await this.prisma.payment.findMany({
+      where: {
+        status: PaymentStatus.SUCCESS,
+        paidAt: {
+          gte: startOfMonth,
+          lte: endOfMonth,
+        },
+      },
+      include: {
+        purchase: {
+          include: {
+            product: {
+              select: {
+                title: true,
+                category: true,
+                pricingSection: true,
+              },
+            },
+          },
+        },
+      },
+      orderBy: { paidAt: 'asc' },
+    });
+
+    // Calculate total revenue
+    const totalRevenue = payments.reduce((sum, p) => sum + Number(p.amount), 0);
+
+    // Breakdown by payment method
+    const revenueByMethod = payments.reduce((acc, p) => {
+      const method = p.method || 'UNKNOWN';
+      if (!acc[method]) {
+        acc[method] = { method, amount: 0, count: 0 };
+      }
+      acc[method].amount += Number(p.amount);
+      acc[method].count += 1;
+      return acc;
+    }, {} as Record<string, { method: string; amount: number; count: number }>);
+
+    // Breakdown by product category
+    const revenueByCategory = payments.reduce((acc, p) => {
+      const category = p.purchase.product.category;
+      if (!acc[category]) {
+        acc[category] = { category, amount: 0, count: 0 };
+      }
+      acc[category].amount += Number(p.amount);
+      acc[category].count += 1;
+      return acc;
+    }, {} as Record<string, { category: string; amount: number; count: number }>);
+
+    // Breakdown by purchase type
+    const revenueByPurchaseType = payments.reduce((acc, p) => {
+      const purchaseType = p.purchase.purchaseType;
+      if (!acc[purchaseType]) {
+        acc[purchaseType] = { purchaseType, amount: 0, count: 0 };
+      }
+      acc[purchaseType].amount += Number(p.amount);
+      acc[purchaseType].count += 1;
+      return acc;
+    }, {} as Record<string, { purchaseType: string; amount: number; count: number }>);
+
+    // Get commissions issued for the month (these are expenses)
+    const commissions = await this.prisma.commission.findMany({
+      where: {
+        status: CommissionStatus.ISSUED,
+        approvedAt: {
+          gte: startOfMonth,
+          lte: endOfMonth,
+        },
+      },
+      include: {
+        purchase: {
+          include: {
+            product: {
+              select: {
+                title: true,
+                category: true,
+              },
+            },
+          },
+        },
+      },
+      orderBy: { approvedAt: 'asc' },
+    });
+
+    // Calculate total commissions (expenses)
+    const totalCommissions = commissions.reduce(
+      (sum, c) => sum + Number(c.commissionAmount),
+      0,
+    );
+
+    // Breakdown commissions by agent/company
+    const commissionsByAgent = commissions.reduce((acc, c) => {
+      const key = c.company || 'UNKNOWN';
+      if (!acc[key]) {
+        acc[key] = { company: key, amount: 0, count: 0 };
+      }
+      acc[key].amount += Number(c.commissionAmount);
+      acc[key].count += 1;
+      return acc;
+    }, {} as Record<string, { company: string; amount: number; count: number }>);
+
+    // Calculate net income
+    const netIncome = totalRevenue - totalCommissions;
+
+    return {
+      period: {
+        year,
+        month,
+        monthName: new Date(year, month - 1, 1).toLocaleDateString('en-US', {
+          month: 'long',
+          year: 'numeric',
+        }),
+        startDate: startOfMonth.toISOString(),
+        endDate: endOfMonth.toISOString(),
+      },
+      revenue: {
+        total: totalRevenue,
+        transactionCount: payments.length,
+        byMethod: Object.values(revenueByMethod),
+        byCategory: Object.values(revenueByCategory),
+        byPurchaseType: Object.values(revenueByPurchaseType),
+      },
+      expenses: {
+        total: totalCommissions,
+        transactionCount: commissions.length,
+        commissions: {
+          total: totalCommissions,
+          byAgent: Object.values(commissionsByAgent),
+        },
+      },
+      netIncome,
+      generatedAt: new Date().toISOString(),
     };
   }
 }
