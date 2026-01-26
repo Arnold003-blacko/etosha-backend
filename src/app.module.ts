@@ -20,6 +20,7 @@ import { DashboardModule } from './dashboard/dashboard.module';
 import { TransactModule } from './transact/transact.module';
 import { StaffModule } from './staff/staff.module';
 import { ClientsModule } from './clients/clients.module';
+import { BurialsModule } from './burials/burials.module';
 
 @Module({
   controllers: [AppController],
@@ -50,6 +51,7 @@ import { ClientsModule } from './clients/clients.module';
     DeceasedModule,
     DashboardModule,
     TransactModule,
+    BurialsModule,
   ],
 })
 export class AppModule {}

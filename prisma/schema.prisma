@@ -48,6 +48,31 @@ enum PricingSection {
   FAMILY
 }
 
+enum BurialStatus {
+  PENDING_WAIVER_APPROVAL
+  PENDING_GRAVE_ASSIGNMENT
+  GRAVE_ASSIGNED
+  BURIED
+}
+
+enum WaiverStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum WaiverType {
+  DONATION
+  SPECIAL_CASE
+}
+
+enum AssignmentRequestStatus {
+  PENDING
+  IN_PROGRESS
+  COMPLETED
+  REJECTED
+}
+
 ////////////////////
 /// CORE MODELS
 ////////////////////
@@ -189,6 +214,8 @@ model Purchase {
   yearPlanId Int?
   yearPlan   YearPlan? @relation(fields: [yearPlanId], references: [id])
 
+  graveSlot GraveSlot?
+
   @@index([memberId])
   @@index([memberId, status])
   @@index([memberId, createdAt])
@@ -230,10 +257,10 @@ model Payment {
 
 model Deceased {
   id         String @id @default(uuid()) @db.Uuid
-  purchaseId String @unique @db.Uuid
+  purchaseId String? @unique @db.Uuid
 
   fullName       String
-  dateOfBirth    DateTime
+  dateOfBirth    DateTime?
   gender         String
   address        String
   relationship   String
@@ -241,8 +268,26 @@ model Deceased {
   funeralParlor  String?
   dateOfDeath    DateTime
   expectedBurial DateTime?
+  burialDate     DateTime?
+  notes           String? @db.Text
 
-  purchase Purchase @relation(fields: [purchaseId], references: [id])
+  status BurialStatus @default(PENDING_GRAVE_ASSIGNMENT)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  createdBy String? // Staff ID who created the record
+
+  purchase Purchase? @relation(fields: [purchaseId], references: [id])
+  waiver   Waiver?
+  graveSlot GraveSlot?
+  nextOfKin BurialNextOfKin?
+
+  assignmentRequests AssignmentRequest[]
+
+  @@index([purchaseId])
+  @@index([status])
+  @@index([burialDate])
+  @@index([expectedBurial])
 }
 
 model NextOfKin {
@@ -301,4 +346,112 @@ model Upcoming {
 
   @@index([orderNum])
   @@map("upcoming")
+}
+
+////////////////////
+/// BURIALS MODULE
+////////////////////
+
+model Grave {
+  id          String @id @default(uuid()) @db.Uuid
+  section     PricingSection
+  graveNumber String
+  capacity    Int    @default(2)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  slots GraveSlot[]
+
+  @@unique([section, graveNumber])
+  @@index([section, graveNumber])
+}
+
+model GraveSlot {
+  id         String @id @default(uuid()) @db.Uuid
+  graveId    String @db.Uuid
+  slotNo     Int // 1 or 2
+  purchaseId String? @db.Uuid // Nullable for waiver-funded burials
+  deceasedId String? @unique @db.Uuid // Foreign key to Deceased
+
+  priceAtPurchase Decimal? @db.Decimal(10, 2) // Store pricing for audit (Slot 1 = FULL, Slot 2 = 10% discount)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  grave    Grave    @relation(fields: [graveId], references: [id])
+  purchase Purchase? @relation(fields: [purchaseId], references: [id])
+  deceased Deceased? @relation(fields: [deceasedId], references: [id])
+
+  @@unique([graveId, slotNo])
+  @@unique([purchaseId]) // One purchase can only be used once
+  @@index([graveId])
+  @@index([purchaseId])
+  @@index([deceasedId])
+}
+
+model Waiver {
+  id         String @id @default(uuid()) @db.Uuid
+  deceasedId String @unique @db.Uuid
+
+  waiverType WaiverType
+  reason     String @db.Text
+  status     WaiverStatus @default(PENDING)
+
+  approvedBy   String? // Staff ID (Level 5)
+  approvedAt   DateTime?
+  rejectedBy   String? // Staff ID
+  rejectedAt   DateTime?
+  rejectionReason String? @db.Text
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  deceased Deceased @relation(fields: [deceasedId], references: [id])
+
+  @@index([status])
+  @@index([deceasedId])
+}
+
+model AssignmentRequest {
+  id         String @id @default(uuid()) @db.Uuid
+  deceasedId String @db.Uuid
+
+  requestedSection PricingSection?
+  status           AssignmentRequestStatus @default(PENDING)
+
+  requestedBy String // Staff ID
+  assignedBy  String? // Staff ID (site operations)
+  assignedAt  DateTime?
+
+  notes String? @db.Text
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  deceased Deceased @relation(fields: [deceasedId], references: [id])
+
+  @@index([deceasedId])
+  @@index([status])
+  @@index([requestedBy])
+}
+
+model BurialNextOfKin {
+  id         String @id @default(uuid()) @db.Uuid
+  deceasedId String @unique @db.Uuid
+
+  fullName     String
+  relationship String
+  phone        String
+  email        String?
+  address      String
+
+  isBuyer Boolean @default(false) // Whether this is the purchase buyer
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  deceased Deceased @relation(fields: [deceasedId], references: [id])
+
+  @@index([deceasedId])
 }
