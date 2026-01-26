@@ -464,3 +464,32 @@ model BurialNextOfKin {
 
   @@index([deceasedId])
 }
+
+////////////////////
+/// COMMISSIONS
+////////////////////
+
+model Commission {
+  id              String          @id @default(uuid()) @db.Uuid
+  purchaseId      String          @unique @db.Uuid
+  agentName       String
+  company         String          // "Etosha" for internal staff, or parlour name
+  agentStaffId    String?         // Link to Staff if it's an Etosha staff member
+  saleDate        DateTime        // From purchase.createdAt
+  section         PricingSection? // From purchase.product.pricingSection
+  commissionAmount Decimal        @db.Decimal(10, 2) // 10% of purchase.totalAmount
+  status          CommissionStatus @default(PENDING)
+  approvedBy      String?         // Staff ID who approved (Level 3+)
+  approvedAt      DateTime?
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+
+  purchase Purchase @relation(fields: [purchaseId], references: [id])
+  agentStaff Staff? @relation(fields: [agentStaffId], references: [id])
+  approver  Staff?  @relation("CommissionApprover", fields: [approvedBy], references: [id])
+
+  @@index([status])
+  @@index([agentStaffId])
+  @@index([saleDate])
+  @@index([company])
+}
