@@ -49,13 +49,11 @@ export class BurialsService {
         );
       }
 
-      let purchase = null;
       let status: BurialStatus = BurialStatus.PENDING_GRAVE_ASSIGNMENT;
-      let waiver = null;
 
       // Path A: Paid Purchase Burial
       if (dto.purchaseId) {
-        purchase = await tx.purchase.findUnique({
+        const purchase = await tx.purchase.findUnique({
           where: { id: dto.purchaseId },
           include: { deceased: true, graveSlot: true },
         });
@@ -123,7 +121,7 @@ export class BurialsService {
 
       // Create waiver if needed
       if (dto.waiverType) {
-        waiver = await tx.waiver.create({
+        await tx.waiver.create({
           data: {
             deceasedId: deceased.id,
             waiverType: dto.waiverType,
