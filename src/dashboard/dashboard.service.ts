@@ -4,6 +4,7 @@ import {
   PaymentStatus,
   PurchaseStatus,
   PurchaseType,
+  BurialStatus,
 } from '@prisma/client';
 import { resolveMatrixPrice } from '../pricing/pricing.service';
 
@@ -66,7 +67,7 @@ export class DashboardService {
       },
     });
 
-    // Get burials scheduled for this week (based on expectedBurial date)
+    // Get burials scheduled for this week (based on burialDate or expectedBurial)
     // Calculate start and end of current week (Monday to Sunday)
     const dayOfWeek = now.getDay(); // 0 = Sunday, 1 = Monday, etc.
     const daysFromMonday = dayOfWeek === 0 ? 6 : dayOfWeek - 1; // Convert to Monday-based
@@ -78,11 +79,15 @@ export class DashboardService {
     endOfWeek.setDate(startOfWeek.getDate() + 6);
     endOfWeek.setHours(23, 59, 59, 999);
 
+    // Match calendar logic: check both burialDate and expectedBurial, exclude PENDING_WAIVER_APPROVAL
     const burialsThisWeek = await this.prisma.deceased.count({
       where: {
-        expectedBurial: {
-          gte: startOfWeek,
-          lte: endOfWeek,
+        OR: [
+          { burialDate: { gte: startOfWeek, lte: endOfWeek } },
+          { expectedBurial: { gte: startOfWeek, lte: endOfWeek } },
+        ],
+        status: {
+          not: BurialStatus.PENDING_WAIVER_APPROVAL, // Only show confirmed burials (match calendar logic)
         },
       },
     });

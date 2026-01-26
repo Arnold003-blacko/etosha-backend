@@ -243,35 +243,120 @@ export class BurialsService {
 
   /**
    * Get deceased by ID (for file modal)
+   * Optimized to fetch only essential data
    */
   async getDeceasedById(id: string) {
     const deceased = await this.prisma.deceased.findUnique({
       where: { id },
-      include: {
+      select: {
+        id: true,
+        purchaseId: true,
+        fullName: true,
+        dateOfBirth: true,
+        gender: true,
+        address: true,
+        relationship: true,
+        causeOfDeath: true,
+        funeralParlor: true,
+        dateOfDeath: true,
+        expectedBurial: true,
+        burialDate: true,
+        notes: true,
+        status: true,
+        createdAt: true,
+        updatedAt: true,
+        createdBy: true,
         purchase: {
-          include: {
-            member: true,
-            product: true,
+          select: {
+            id: true,
+            status: true,
+            totalAmount: true,
+            paidAmount: true,
+            member: {
+              select: {
+                id: true,
+                firstName: true,
+                lastName: true,
+                email: true,
+                phone: true,
+              },
+            },
+            product: {
+              select: {
+                id: true,
+                title: true,
+                pricingSection: true,
+                amount: true,
+              },
+            },
+            // Only get recent payments (last 5) for performance
             payments: {
+              select: {
+                id: true,
+                amount: true,
+                status: true,
+                method: true,
+                createdAt: true,
+                paidAt: true,
+              },
               orderBy: { createdAt: 'desc' },
+              take: 5,
             },
           },
         },
-        waiver: true,
+        waiver: {
+          select: {
+            id: true,
+            waiverType: true,
+            reason: true,
+            status: true,
+            approvedBy: true,
+            approvedAt: true,
+            rejectedBy: true,
+            rejectedAt: true,
+            rejectionReason: true,
+          },
+        },
         graveSlot: {
-          include: {
-            grave: true,
-            purchase: {
-              include: {
-                member: true,
-                product: true,
+          select: {
+            id: true,
+            slotNo: true,
+            priceAtPurchase: true,
+            grave: {
+              select: {
+                id: true,
+                section: true,
+                graveNumber: true,
+                capacity: true,
               },
             },
           },
         },
-        nextOfKin: true,
+        nextOfKin: {
+          select: {
+            id: true,
+            fullName: true,
+            relationship: true,
+            phone: true,
+            email: true,
+            address: true,
+            isBuyer: true,
+          },
+        },
+        // Only get recent assignment requests (last 3) for performance
         assignmentRequests: {
+          select: {
+            id: true,
+            requestedSection: true,
+            status: true,
+            requestedBy: true,
+            assignedBy: true,
+            assignedAt: true,
+            notes: true,
+            createdAt: true,
+          },
           orderBy: { createdAt: 'desc' },
+          take: 3,
         },
       },
     });
@@ -323,7 +408,12 @@ export class BurialsService {
     burials.forEach((burial) => {
       const date = burial.burialDate || burial.expectedBurial;
       if (date) {
-        const dateKey = date.toISOString().split('T')[0];
+        // Normalize date to avoid timezone issues - use UTC date components
+        const dateObj = new Date(date);
+        const year = dateObj.getUTCFullYear();
+        const month = String(dateObj.getUTCMonth() + 1).padStart(2, '0');
+        const day = String(dateObj.getUTCDate()).padStart(2, '0');
+        const dateKey = `${year}-${month}-${day}`;
         if (!calendar[dateKey]) {
           calendar[dateKey] = [];
         }
@@ -769,6 +859,65 @@ export class BurialsService {
         nextOfKin: true,
       },
     });
+  }
+
+  /**
+   * Lookup purchase by ID (for burial creation validation)
+   */
+  async lookupPurchase(purchaseId: string) {
+    const purchase = await this.prisma.purchase.findUnique({
+      where: { id: purchaseId },
+      select: {
+        id: true,
+        status: true,
+        totalAmount: true,
+        paidAmount: true,
+        balance: true,
+        paidAt: true,
+        member: {
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
+            email: true,
+            phone: true,
+          },
+        },
+        product: {
+          select: {
+            id: true,
+            title: true,
+            pricingSection: true,
+            amount: true,
+            category: true,
+          },
+        },
+        deceased: {
+          select: {
+            id: true,
+            fullName: true,
+          },
+        },
+        graveSlot: {
+          select: {
+            id: true,
+            slotNo: true,
+            grave: {
+              select: {
+                section: true,
+                graveNumber: true,
+              },
+            },
+          },
+        },
+      },
+    });
+
+    if (!purchase) {
+      throw new NotFoundException('Purchase not found');
+    }
+
+    return purchase;
   }
 
   /**

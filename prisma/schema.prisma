@@ -73,6 +73,11 @@ enum AssignmentRequestStatus {
   REJECTED
 }
 
+enum CommissionStatus {
+  PENDING
+  ISSUED
+}
+
 ////////////////////
 /// CORE MODELS
 ////////////////////
@@ -143,6 +148,9 @@ model Staff {
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  commissionsAsAgent Commission[] @relation
+  commissionsAsApprover Commission[] @relation("CommissionApprover")
 
   @@index([email])
   @@index([level])
@@ -215,6 +223,7 @@ model Purchase {
   yearPlan   YearPlan? @relation(fields: [yearPlanId], references: [id])
 
   graveSlot GraveSlot?
+  commission Commission?
 
   @@index([memberId])
   @@index([memberId, status])

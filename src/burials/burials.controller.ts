@@ -56,6 +56,12 @@ export class BurialsController {
     );
   }
 
+  // Purchase lookup endpoint (must be before :id route)
+  @Get('purchases/:purchaseId')
+  async lookupPurchase(@Param('purchaseId') purchaseId: string) {
+    return this.burialsService.lookupPurchase(purchaseId);
+  }
+
   @Get(':id')
   async getDeceasedById(@Param('id') id: string) {
     return this.burialsService.getDeceasedById(id);
