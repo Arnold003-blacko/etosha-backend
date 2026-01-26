@@ -1,12 +1,11 @@
-import { IsEnum, IsInt, IsString, IsUUID, Min, Max } from 'class-validator';
-import { PricingSection } from '@prisma/client';
+import { IsInt, IsString, IsUUID, Min, Max } from 'class-validator';
 
 export class AssignGraveDto {
   @IsUUID()
   deceasedId: string;
 
-  @IsEnum(PricingSection)
-  section: PricingSection;
+  // Section is now derived from purchase.product.pricingSection, not manually assigned
+  // Only grave number needs to be assigned
 
   @IsString()
   graveNumber: string;

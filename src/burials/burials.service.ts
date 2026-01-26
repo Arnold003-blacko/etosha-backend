@@ -131,12 +131,11 @@ export class BurialsService {
         });
       }
 
-      // If grave assignment provided, assign it
-      if (dto.section && dto.graveNumber && dto.slotNo) {
+      // If grave assignment provided, assign it (section will be derived from product)
+      if (dto.graveNumber && dto.slotNo) {
         await this.assignGraveInternal(
           {
             deceasedId: deceased.id,
-            section: dto.section as PricingSection,
             graveNumber: dto.graveNumber,
             slotNo: parseInt(dto.slotNo),
           },
@@ -153,7 +152,14 @@ export class BurialsService {
           purchase: {
             include: {
               member: true,
-              product: true,
+              product: {
+                select: {
+                  id: true,
+                  title: true,
+                  pricingSection: true,
+                  amount: true,
+                },
+              },
             },
           },
           waiver: true,
@@ -202,7 +208,14 @@ export class BurialsService {
           purchase: {
             include: {
               member: true,
-              product: true,
+              product: {
+                select: {
+                  id: true,
+                  title: true,
+                  pricingSection: true,
+                  amount: true,
+                },
+              },
             },
           },
           waiver: true,
@@ -467,7 +480,14 @@ export class BurialsService {
             purchase: {
               include: {
                 member: true,
-                product: true,
+                product: {
+                  select: {
+                    id: true,
+                    title: true,
+                    pricingSection: true,
+                    amount: true,
+                  },
+                },
               },
             },
             waiver: true,
@@ -500,7 +520,11 @@ export class BurialsService {
       where: { id: dto.deceasedId },
       include: {
         graveSlot: true,
-        purchase: true,
+        purchase: {
+          include: {
+            product: true,
+          },
+        },
         waiver: true,
       },
     });
@@ -518,11 +542,41 @@ export class BurialsService {
       throw new BadRequestException('Waiver must be approved before assignment');
     }
 
+    // Get section from purchase product (for paid purchases) or use requested section (for waivers)
+    let section: PricingSection;
+    
+    if (deceased.purchaseId && deceased.purchase?.product?.pricingSection) {
+      // Section comes from the product that was purchased
+      section = deceased.purchase.product.pricingSection;
+    } else if (deceased.waiver) {
+      // For waiver burials, we need to get section from assignment request or allow it to be specified
+      // For now, we'll require it to be in the assignment request or throw an error
+      const assignmentRequest = await tx.assignmentRequest.findFirst({
+        where: {
+          deceasedId: dto.deceasedId,
+          status: AssignmentRequestStatus.PENDING,
+        },
+        orderBy: { createdAt: 'desc' },
+      });
+
+      if (!assignmentRequest || !assignmentRequest.requestedSection) {
+        throw new BadRequestException(
+          'Section must be specified in assignment request for waiver burials',
+        );
+      }
+
+      section = assignmentRequest.requestedSection;
+    } else {
+      throw new BadRequestException(
+        'Cannot determine section: purchase or waiver information missing',
+      );
+    }
+
     // Find or create grave
     let grave = await tx.grave.findUnique({
       where: {
         section_graveNumber: {
-          section: dto.section,
+          section: section,
           graveNumber: dto.graveNumber,
         },
       },
@@ -538,7 +592,7 @@ export class BurialsService {
     if (!grave) {
       grave = await tx.grave.create({
         data: {
-          section: dto.section,
+          section: section,
           graveNumber: dto.graveNumber,
           capacity: 2,
         },
@@ -640,7 +694,14 @@ export class BurialsService {
         purchase: {
           include: {
             member: true,
-            product: true,
+            product: {
+              select: {
+                id: true,
+                title: true,
+                pricingSection: true,
+                amount: true,
+              },
+            },
           },
         },
         waiver: true,
@@ -689,7 +750,14 @@ export class BurialsService {
         purchase: {
           include: {
             member: true,
-            product: true,
+            product: {
+              select: {
+                id: true,
+                title: true,
+                pricingSection: true,
+                amount: true,
+              },
+            },
           },
         },
         waiver: true,
@@ -731,7 +799,14 @@ export class BurialsService {
         purchase: {
           include: {
             member: true,
-            product: true,
+            product: {
+              select: {
+                id: true,
+                title: true,
+                pricingSection: true,
+                amount: true,
+              },
+            },
           },
         },
         waiver: true,

@@ -77,9 +77,8 @@ export class CreateBurialDto {
   isBuyerNextOfKin: boolean;
 
   // Grave assignment (optional - can be assigned later)
-  @IsOptional()
-  @IsEnum(['MUHACHA', 'LAWN', 'DONHODZO', 'FAMILY'])
-  section?: string;
+  // Section is derived from purchase.product.pricingSection, not manually assigned
+  // Only grave number needs to be assigned
 
   @IsOptional()
   @IsString()
