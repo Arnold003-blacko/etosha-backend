@@ -274,7 +274,7 @@ model Deceased {
   status BurialStatus @default(PENDING_GRAVE_ASSIGNMENT)
 
   createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  updatedAt DateTime @default(now()) @updatedAt
   createdBy String? // Staff ID who created the record
 
   purchase Purchase? @relation(fields: [purchaseId], references: [id])
