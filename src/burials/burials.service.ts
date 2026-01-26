@@ -458,6 +458,31 @@ export class BurialsService {
   }
 
   /**
+   * Get waivers (optionally filtered by status)
+   */
+  async getWaivers(status?: string) {
+    const where: any = {};
+    if (status) {
+      where.status = status as WaiverStatus;
+    }
+
+    return this.prisma.waiver.findMany({
+      where,
+      include: {
+        deceased: {
+          select: {
+            id: true,
+            fullName: true,
+            dateOfDeath: true,
+            expectedBurial: true,
+          },
+        },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+
+  /**
    * Approve or reject waiver (Level 5 only)
    */
   async approveWaiver(dto: ApproveWaiverDto, staffId: string, staffLevel: number) {

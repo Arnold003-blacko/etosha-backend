@@ -86,6 +86,11 @@ export class BurialsController {
     return this.burialsService.createWaiver(dto);
   }
 
+  @Get('waivers')
+  async getWaivers(@Query('status') status?: string) {
+    return this.burialsService.getWaivers(status);
+  }
+
   @Put('waivers/approve')
   async approveWaiver(@Body() dto: ApproveWaiverDto, @Request() req: any) {
     return this.burialsService.approveWaiver(
