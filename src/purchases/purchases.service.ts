@@ -462,7 +462,7 @@ export class PurchasesService {
       });
 
       // Create initial payment if amount > 0
-      let payment = null;
+      let payment: any = null;
       if (initialPayment > 0) {
         const { randomUUID } = await import('crypto');
         const { PaymentStatus } = await import('@prisma/client');
@@ -640,7 +640,7 @@ export class PurchasesService {
       });
 
       // Create payment record for the amount already paid
-      let payment = null;
+      let payment: any = null;
       if (amountPaid > 0) {
         const { randomUUID } = await import('crypto');
         const { PaymentStatus } = await import('@prisma/client');
