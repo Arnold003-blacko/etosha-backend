@@ -13,6 +13,8 @@ import {
   PurchaseType,
   ItemCategory,
   FutureFor,
+  Payment,
+  YearPlan,
 } from '@prisma/client';
 import { resolveMatrixPrice } from '../pricing/pricing.service';
 import { DashboardGateway } from '../dashboard/dashboard.gateway';
@@ -462,7 +464,7 @@ export class PurchasesService {
       });
 
       // Create initial payment if amount > 0
-      let payment: Payment | null = null;
+      let payment: any = null;
       if (initialPayment > 0) {
         const { randomUUID } = await import('crypto');
         const { PaymentStatus } = await import('@prisma/client');
@@ -510,7 +512,7 @@ export class PurchasesService {
     dto: {
       memberId: string;
       productId: string;
-      yearPlanId: number;
+      yearPlanId?: number;
       amountAlreadyPaid: number;
       futureFor?: FutureFor;
       paymentMethod?: string;
@@ -534,7 +536,7 @@ export class PurchasesService {
       throw new BadRequestException('Valid payment plan ID is required for existing payers');
     }
     
-    const yearPlanId = dto.yearPlanId; // Now TypeScript knows it's a number
+    const yearPlanId: number = dto.yearPlanId; // Now TypeScript knows it's a number
 
     // Fetch member, product, and year plan
     const [member, product, yearPlan] = await Promise.all([
@@ -642,7 +644,7 @@ export class PurchasesService {
       });
 
       // Create payment record for the amount already paid
-      let payment = null;
+      let payment: any = null;
       if (amountPaid > 0) {
         const { randomUUID } = await import('crypto');
         const { PaymentStatus } = await import('@prisma/client');
@@ -752,7 +754,7 @@ export class PurchasesService {
     const hasPlans = !!product.pricingSection;
 
     // Validate yearPlanId based on product type
-    let yearPlan: YearPlan | null = null;
+    let yearPlan: any = null;
     let totalAmount: number;
     let monthlyInstallment: number | null = null;
     let planMonths: number | null = null;
@@ -857,7 +859,7 @@ export class PurchasesService {
       });
 
       // 2) Create the Historic Payment as LEGACY_SETTLEMENT
-      let payment = null;
+      let payment: any = null;
       if (alreadyPaid > 0) {
         const { randomUUID } = await import('crypto');
         const { PaymentStatus } = await import('@prisma/client');

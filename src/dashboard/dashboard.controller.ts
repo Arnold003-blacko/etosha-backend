@@ -112,7 +112,15 @@ export class DashboardController {
    * ============================ */
   @Post('purchases/create-existing-payer')
   createExistingPayerPurchase(@Body() dto: CreateExistingPayerDto) {
-    return this.purchasesService.createExistingPayerPurchase(dto);
+    // Validate yearPlanId is provided (required for existing payers)
+    if (!dto.yearPlanId) {
+      throw new BadRequestException('Payment plan ID is required for existing payers');
+    }
+    // TypeScript assertion: after validation, yearPlanId is guaranteed to be a number
+    return this.purchasesService.createExistingPayerPurchase({
+      ...dto,
+      yearPlanId: dto.yearPlanId as number,
+    });
   }
 
   /* ============================
