@@ -7,6 +7,7 @@ import { StaffJwtGuard } from '../staff-auth/staff-jwt.guard';
 import { PurchasesService } from '../purchases/purchases.service';
 import { CreatePurchaseWithPaymentDto } from '../purchases/dto/create-purchase-with-payment.dto';
 import { CreateExistingPayerDto } from '../purchases/dto/create-existing-payer.dto';
+import { RegisterLegacyPlanDto } from '../purchases/dto/register-legacy-plan.dto';
 
 @Controller('dashboard')
 @UseGuards(StaffJwtGuard)
@@ -112,6 +113,16 @@ export class DashboardController {
   @Post('purchases/create-existing-payer')
   createExistingPayerPurchase(@Body() dto: CreateExistingPayerDto) {
     return this.purchasesService.createExistingPayerPurchase(dto);
+  }
+
+  /* ============================
+   * REGISTER LEGACY PLAN (ADMIN)
+   * Registers an existing plan that was active before the system existed.
+   * Supports both monthly installment plans and direct payment arrangements.
+   * ============================ */
+  @Post('purchases/register-legacy-plan')
+  registerLegacyPlan(@Body() dto: RegisterLegacyPlanDto) {
+    return this.purchasesService.registerLegacyPlan(dto);
   }
 
   /* ============================

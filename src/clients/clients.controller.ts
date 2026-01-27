@@ -76,4 +76,9 @@ export class ClientsController {
     }
     return this.clientsService.changePassword(id, changePasswordDto);
   }
+
+  @Get('search/:query')
+  async search(@Param('query') query: string) {
+    return this.clientsService.search(query);
+  }
 }

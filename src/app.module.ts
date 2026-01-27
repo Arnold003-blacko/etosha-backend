@@ -22,7 +22,6 @@ import { StaffModule } from './staff/staff.module';
 import { ClientsModule } from './clients/clients.module';
 import { BurialsModule } from './burials/burials.module';
 import { CommissionsModule } from './commissions/commissions.module';
-import { AccountsModule } from './accounts/accounts.module';
 
 @Module({
   controllers: [AppController],
@@ -55,7 +54,6 @@ import { AccountsModule } from './accounts/accounts.module';
     TransactModule,
     BurialsModule,
     CommissionsModule,
-    AccountsModule,
   ],
 })
 export class AppModule {}

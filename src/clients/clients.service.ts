@@ -226,4 +226,48 @@ export class ClientsService {
 
     return { message: 'Password changed successfully' };
   }
+
+  /**
+   * Search clients by Member ID, National ID, Phone, or Name
+   * Used for legacy plan registration
+   */
+  async search(query: string) {
+    if (!query || query.trim().length === 0) {
+      return [];
+    }
+
+    const searchTerm = query.trim().toLowerCase();
+
+    const clients = await this.prisma.member.findMany({
+      where: {
+        OR: [
+          { id: { contains: searchTerm, mode: 'insensitive' } },
+          { nationalId: { contains: searchTerm, mode: 'insensitive' } },
+          { phone: { contains: searchTerm, mode: 'insensitive' } },
+          { email: { contains: searchTerm, mode: 'insensitive' } },
+          { firstName: { contains: searchTerm, mode: 'insensitive' } },
+          { lastName: { contains: searchTerm, mode: 'insensitive' } },
+        ],
+      },
+      select: {
+        id: true,
+        firstName: true,
+        lastName: true,
+        email: true,
+        country: true,
+        address: true,
+        city: true,
+        phone: true,
+        nationalId: true,
+        dateOfBirth: true,
+        gender: true,
+        createdAt: true,
+        updatedAt: true,
+      },
+      take: 20, // Limit results
+      orderBy: { createdAt: 'desc' },
+    });
+
+    return clients;
+  }
 }

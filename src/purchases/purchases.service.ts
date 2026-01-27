@@ -462,7 +462,7 @@ export class PurchasesService {
       });
 
       // Create initial payment if amount > 0
-      let payment: any = null;
+      let payment = null;
       if (initialPayment > 0) {
         const { randomUUID } = await import('crypto');
         const { PaymentStatus } = await import('@prisma/client');
@@ -640,7 +640,7 @@ export class PurchasesService {
       });
 
       // Create payment record for the amount already paid
-      let payment: any = null;
+      let payment = null;
       if (amountPaid > 0) {
         const { randomUUID } = await import('crypto');
         const { PaymentStatus } = await import('@prisma/client');
@@ -682,6 +682,270 @@ export class PurchasesService {
           months: yearPlan.months,
           monthlyAmount: Number(monthly),
         },
+      },
+    };
+  }
+
+  /* =====================================================
+   * REGISTER LEGACY PLAN (EXISTING CLIENT PLAN)
+   * =====================================================
+   * This module registers an existing plan that was active before the system existed.
+   * Supports both:
+   * - Monthly Installment Plans (with yearPlanId)
+   * - Full Settlement / Direct Payment (no yearPlanId)
+   * 
+   * Creates purchase + legacy payment entry with LEGACY_SETTLEMENT method.
+   * Remaining balance is calculated using payments.service logic.
+   */
+  async registerLegacyPlan(dto: {
+    memberId: string;
+    productId: string;
+    yearPlanId?: number; // Required if product has plans, null if direct payment
+    alreadyPaid: number;
+    lastPaymentDate?: string;
+  }) {
+    // 🔒 Guard: Validate IDs
+    if (!dto.memberId || typeof dto.memberId !== 'string' || dto.memberId.trim().length === 0) {
+      throw new BadRequestException('Invalid Member ID: must be a non-empty string');
+    }
+    validateUUID(dto.productId, 'Product ID');
+
+    // Validate already paid amount
+    const alreadyPaid = Number(dto.alreadyPaid);
+    if (isNaN(alreadyPaid) || alreadyPaid < 0) {
+      throw new BadRequestException(
+        'Already paid amount must be a valid number >= 0',
+      );
+    }
+
+    // Fetch member and product
+    const [member, product] = await Promise.all([
+      this.prisma.member.findUnique({
+        where: { id: dto.memberId },
+        select: {
+          id: true,
+          dateOfBirth: true,
+        },
+      }),
+      this.prisma.product.findUnique({
+        where: { id: dto.productId },
+        select: {
+          id: true,
+          amount: true,
+          active: true,
+          pricingSection: true,
+        },
+      }),
+    ]);
+
+    if (!member) {
+      throw new NotFoundException('Member not found');
+    }
+
+    if (!product || !product.active) {
+      throw new NotFoundException('Product not found or inactive');
+    }
+
+    // Check if product has plans configured
+    const hasPlans = !!product.pricingSection;
+
+    // Validate yearPlanId based on product type
+    let yearPlan = null;
+    let totalAmount: number;
+    let monthlyInstallment: number | null = null;
+    let planMonths: number | null = null;
+
+    if (hasPlans) {
+      // Product has plans - yearPlanId is required
+      if (!dto.yearPlanId) {
+        throw new BadRequestException(
+          'Payment plan is required for this product. Please select a plan.',
+        );
+      }
+
+      // Validate member has date of birth (required for payment plan calculations)
+      if (!member.dateOfBirth) {
+        throw new BadRequestException(
+          'Date of birth is required for installment purchases',
+        );
+      }
+
+      // Fetch year plan
+      yearPlan = await this.prisma.yearPlan.findUnique({
+        where: { id: dto.yearPlanId },
+      });
+
+      if (!yearPlan) {
+        throw new NotFoundException('Payment plan not found');
+      }
+
+      // Calculate total amount based on payment plan
+      const today = new Date();
+      const dob = new Date(member.dateOfBirth);
+      let age = today.getFullYear() - dob.getFullYear();
+      if (
+        today.getMonth() < dob.getMonth() ||
+        (today.getMonth() === dob.getMonth() &&
+          today.getDate() < dob.getDate())
+      ) {
+        age--;
+      }
+
+      const monthly = resolveMatrixPrice(product, yearPlan, age);
+
+      if (!monthly || Number(monthly) <= 0) {
+        throw new BadRequestException(
+          'Installment pricing not available for this product',
+        );
+      }
+
+      monthlyInstallment = Number(monthly);
+      planMonths = yearPlan.months;
+      totalAmount = monthlyInstallment * planMonths;
+    } else {
+      // Product has no plans - direct payment/full settlement
+      if (dto.yearPlanId) {
+        throw new BadRequestException(
+          'This product does not have payment plans. Do not select a plan.',
+        );
+      }
+
+      // Use product's direct amount
+      totalAmount = Number(product.amount);
+    }
+
+    // Validate already paid doesn't exceed total
+    if (alreadyPaid > totalAmount) {
+      throw new BadRequestException(
+        `Already paid amount (${alreadyPaid.toFixed(2)}) cannot exceed total contract amount (${totalAmount.toFixed(2)})`,
+      );
+    }
+
+    // Calculate remaining balance
+    const remainingBalance = totalAmount - alreadyPaid;
+    const now = new Date();
+    const lastPaymentDate = dto.lastPaymentDate
+      ? new Date(dto.lastPaymentDate)
+      : now;
+
+    // Determine purchase status
+    let purchaseStatus: PurchaseStatus;
+    if (remainingBalance <= 0) {
+      purchaseStatus = PurchaseStatus.PAID;
+    } else if (alreadyPaid > 0) {
+      purchaseStatus = PurchaseStatus.PARTIALLY_PAID;
+    } else {
+      purchaseStatus = PurchaseStatus.PENDING_PAYMENT;
+    }
+
+    // Create purchase and legacy payment atomically
+    const result = await this.prisma.$transaction(async (tx) => {
+      // 1) Create the Purchase/Contract record
+      const purchase = await tx.purchase.create({
+        data: {
+          memberId: dto.memberId,
+          productId: product.id,
+          purchaseType: hasPlans ? PurchaseType.FUTURE : PurchaseType.IMMEDIATE,
+          yearPlanId: yearPlan?.id ?? null,
+          totalAmount,
+          paidAmount: 0, // Will be updated by payment service logic
+          balance: totalAmount, // Will be updated by payment service logic
+          status: PurchaseStatus.PENDING_PAYMENT, // Will be updated after payment
+        },
+      });
+
+      // 2) Create the Historic Payment as LEGACY_SETTLEMENT
+      let payment = null;
+      if (alreadyPaid > 0) {
+        const { randomUUID } = await import('crypto');
+        const { PaymentStatus } = await import('@prisma/client');
+
+        payment = await tx.payment.create({
+          data: {
+            purchaseId: purchase.id,
+            memberId: dto.memberId,
+            amount: alreadyPaid,
+            currency: 'USD',
+            method: 'LEGACY_SETTLEMENT', // Special method for legacy payments
+            reference: `LEGACY-${randomUUID().substring(0, 8).toUpperCase()}`,
+            status: PaymentStatus.SUCCESS,
+            paidAt: lastPaymentDate,
+            createdAt: now,
+          },
+        });
+
+        // 3) Update purchase using payments.service logic
+        // Calculate totalPaid from all SUCCESS payments
+        const allPayments = await tx.payment.findMany({
+          where: {
+            purchaseId: purchase.id,
+            status: PaymentStatus.SUCCESS,
+          },
+        });
+
+        const totalPaid = allPayments.reduce(
+          (sum, p) => sum + Number(p.amount),
+          0,
+        );
+        const newBalance = totalAmount - totalPaid;
+        const finalStatus =
+          newBalance <= 0
+            ? PurchaseStatus.PAID
+            : totalPaid > 0
+              ? PurchaseStatus.PARTIALLY_PAID
+              : PurchaseStatus.PENDING_PAYMENT;
+
+        await tx.purchase.update({
+          where: { id: purchase.id },
+          data: {
+            paidAmount: totalPaid,
+            balance: newBalance,
+            status: finalStatus,
+            paidAt: newBalance <= 0 ? now : null,
+            completedAt: newBalance <= 0 ? now : null,
+          },
+        });
+      }
+
+      return { purchase, payment };
+    });
+
+    // Fetch updated purchase
+    const updatedPurchase = await this.prisma.purchase.findUnique({
+      where: { id: result.purchase.id },
+      include: {
+        product: {
+          select: {
+            id: true,
+            title: true,
+            pricingSection: true,
+          },
+        },
+        yearPlan: yearPlan
+          ? {
+              select: {
+                id: true,
+                name: true,
+                months: true,
+              },
+            }
+          : false,
+      },
+    });
+
+    // Emit real-time update
+    this.dashboardGateway.broadcastDashboardUpdate();
+
+    return {
+      purchase: updatedPurchase,
+      payment: result.payment,
+      summary: {
+        totalAmount,
+        monthlyInstallment,
+        planMonths,
+        alreadyPaid,
+        remainingBalance: Number(updatedPurchase.balance),
+        status: updatedPurchase.status,
       },
     };
   }

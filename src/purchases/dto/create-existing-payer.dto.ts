@@ -24,12 +24,14 @@ export class CreateExistingPayerDto {
   productId: string;
 
   /**
-   * Payment plan ID - REQUIRED for existing payers
-   * They must have been on a specific plan
+   * Payment plan ID - Optional
+   * Required only if the product has payment plans
+   * If product has no plans, this should be null/undefined (direct payment)
    */
+  @IsOptional()
   @IsInt()
   @Type(() => Number)
-  yearPlanId: number;
+  yearPlanId?: number;
 
   /**
    * Amount already paid by the client before system implementation
@@ -61,4 +63,13 @@ export class CreateExistingPayerDto {
   @IsOptional()
   @IsString()
   paymentReference?: string;
+
+  /**
+   * Optional: Paid-through month or last payment date
+   * Used to set nextDueAt correctly to avoid incorrect arrears calculation
+   * Format: YYYY-MM-DD (ISO date string)
+   */
+  @IsOptional()
+  @IsString()
+  paidThroughDate?: string;
 }
