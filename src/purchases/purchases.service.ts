@@ -15,6 +15,7 @@ import {
   FutureFor,
   Payment,
   YearPlan,
+  PaymentStatus,
 } from '@prisma/client';
 import { resolveMatrixPrice } from '../pricing/pricing.service';
 import { DashboardGateway } from '../dashboard/dashboard.gateway';
@@ -863,7 +864,6 @@ export class PurchasesService {
       let payment: any = null;
       if (alreadyPaid > 0) {
         const { randomUUID } = await import('crypto');
-        const { PaymentStatus } = await import('@prisma/client');
 
         payment = await tx.payment.create({
           data: {
@@ -912,8 +912,8 @@ export class PurchasesService {
         });
       }
 
-          return { purchase, payment };
-        });
+      return { purchase, payment };
+    });
 
         // Fetch updated purchase
         const updatedPurchase = await this.prisma.purchase.findUnique({
