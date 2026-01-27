@@ -246,6 +246,11 @@ export class BurialsService {
    * Optimized to fetch only essential data
    */
   async getDeceasedById(id: string) {
+    // Validate UUID format
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) {
+      throw new BadRequestException('Invalid deceased ID: must be a valid UUID format');
+    }
+
     const deceased = await this.prisma.deceased.findUnique({
       where: { id },
       select: {

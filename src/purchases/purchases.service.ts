@@ -708,22 +708,23 @@ export class PurchasesService {
     alreadyPaid: number;
     lastPaymentDate?: string;
   }) {
-    // 🔒 Guard: Validate IDs
-    if (!dto.memberId || typeof dto.memberId !== 'string' || dto.memberId.trim().length === 0) {
-      throw new BadRequestException('Invalid Member ID: must be a non-empty string');
-    }
-    validateUUID(dto.productId, 'Product ID');
+    try {
+      // 🔒 Guard: Validate IDs
+      if (!dto.memberId || typeof dto.memberId !== 'string' || dto.memberId.trim().length === 0) {
+        throw new BadRequestException('Invalid Member ID: must be a non-empty string');
+      }
+      validateUUID(dto.productId, 'Product ID');
 
-    // Validate already paid amount
-    const alreadyPaid = Number(dto.alreadyPaid);
-    if (isNaN(alreadyPaid) || alreadyPaid < 0) {
-      throw new BadRequestException(
-        'Already paid amount must be a valid number >= 0',
-      );
-    }
+      // Validate already paid amount
+      const alreadyPaid = Number(dto.alreadyPaid);
+      if (isNaN(alreadyPaid) || alreadyPaid < 0) {
+        throw new BadRequestException(
+          'Already paid amount must be a valid number >= 0',
+        );
+      }
 
-    // Fetch member and product
-    const [member, product] = await Promise.all([
+      // Fetch member and product
+      const [member, product] = await Promise.all([
       this.prisma.member.findUnique({
         where: { id: dto.memberId },
         select: {
@@ -731,119 +732,119 @@ export class PurchasesService {
           dateOfBirth: true,
         },
       }),
-      this.prisma.product.findUnique({
-        where: { id: dto.productId },
-        select: {
-          id: true,
-          amount: true,
-          active: true,
-          pricingSection: true,
-        },
-      }),
-    ]);
+        this.prisma.product.findUnique({
+          where: { id: dto.productId },
+          select: {
+            id: true,
+            amount: true,
+            active: true,
+            pricingSection: true,
+          },
+        }),
+      ]);
 
-    if (!member) {
-      throw new NotFoundException('Member not found');
-    }
-
-    if (!product || !product.active) {
-      throw new NotFoundException('Product not found or inactive');
-    }
-
-    // Check if product has plans configured
-    const hasPlans = !!product.pricingSection;
-
-    // Validate yearPlanId based on product type
-    let yearPlan: any = null;
-    let totalAmount: number;
-    let monthlyInstallment: number | null = null;
-    let planMonths: number | null = null;
-
-    if (hasPlans) {
-      // Product has plans - yearPlanId is required
-      if (!dto.yearPlanId) {
-        throw new BadRequestException(
-          'Payment plan is required for this product. Please select a plan.',
-        );
+      if (!member) {
+        throw new NotFoundException('Member not found');
       }
 
-      // Validate member has date of birth (required for payment plan calculations)
-      if (!member.dateOfBirth) {
-        throw new BadRequestException(
-          'Date of birth is required for installment purchases',
-        );
+      if (!product || !product.active) {
+        throw new NotFoundException('Product not found or inactive');
       }
 
-      // Fetch year plan
-      yearPlan = await this.prisma.yearPlan.findUnique({
-        where: { id: dto.yearPlanId },
-      });
+      // Check if product has plans configured
+      const hasPlans = !!product.pricingSection;
 
-      if (!yearPlan) {
-        throw new NotFoundException('Payment plan not found');
-      }
+      // Validate yearPlanId based on product type
+      let yearPlan: any = null;
+      let totalAmount: number;
+      let monthlyInstallment: number | null = null;
+      let planMonths: number | null = null;
 
-      // Calculate total amount based on payment plan
-      const today = new Date();
-      const dob = new Date(member.dateOfBirth);
-      let age = today.getFullYear() - dob.getFullYear();
-      if (
-        today.getMonth() < dob.getMonth() ||
-        (today.getMonth() === dob.getMonth() &&
-          today.getDate() < dob.getDate())
-      ) {
-        age--;
-      }
+        if (hasPlans) {
+          // Product has plans - yearPlanId is required
+          if (!dto.yearPlanId) {
+            throw new BadRequestException(
+              'Payment plan is required for this product. Please select a plan.',
+            );
+          }
 
-      const monthly = resolveMatrixPrice(product, yearPlan, age);
+          // Validate member has date of birth (required for payment plan calculations)
+          if (!member.dateOfBirth) {
+            throw new BadRequestException(
+              'Date of birth is required for installment purchases',
+            );
+          }
 
-      if (!monthly || Number(monthly) <= 0) {
-        throw new BadRequestException(
-          'Installment pricing not available for this product',
-        );
-      }
+          // Fetch year plan
+          yearPlan = await this.prisma.yearPlan.findUnique({
+            where: { id: dto.yearPlanId },
+          });
 
-      monthlyInstallment = Number(monthly);
-      planMonths = yearPlan.months;
-      totalAmount = monthlyInstallment * (planMonths || 0);
-    } else {
-      // Product has no plans - direct payment/full settlement
-      if (dto.yearPlanId) {
-        throw new BadRequestException(
-          'This product does not have payment plans. Do not select a plan.',
-        );
-      }
+          if (!yearPlan) {
+            throw new NotFoundException('Payment plan not found');
+          }
 
-      // Use product's direct amount
-      totalAmount = Number(product.amount);
-    }
+          // Calculate total amount based on payment plan
+          const today = new Date();
+          const dob = new Date(member.dateOfBirth);
+          let age = today.getFullYear() - dob.getFullYear();
+          if (
+            today.getMonth() < dob.getMonth() ||
+            (today.getMonth() === dob.getMonth() &&
+              today.getDate() < dob.getDate())
+          ) {
+            age--;
+          }
 
-    // Validate already paid doesn't exceed total
-    if (alreadyPaid > totalAmount) {
-      throw new BadRequestException(
-        `Already paid amount (${alreadyPaid.toFixed(2)}) cannot exceed total contract amount (${totalAmount.toFixed(2)})`,
-      );
-    }
+          const monthly = resolveMatrixPrice(product, yearPlan, age);
 
-    // Calculate remaining balance
-    const remainingBalance = totalAmount - alreadyPaid;
-    const now = new Date();
-    const lastPaymentDate = dto.lastPaymentDate
-      ? new Date(dto.lastPaymentDate)
-      : now;
+          if (!monthly || Number(monthly) <= 0) {
+            throw new BadRequestException(
+              'Installment pricing not available for this product',
+            );
+          }
 
-    // Determine purchase status
-    let purchaseStatus: PurchaseStatus;
-    if (remainingBalance <= 0) {
-      purchaseStatus = PurchaseStatus.PAID;
-    } else if (alreadyPaid > 0) {
-      purchaseStatus = PurchaseStatus.PARTIALLY_PAID;
-    } else {
-      purchaseStatus = PurchaseStatus.PENDING_PAYMENT;
-    }
+          monthlyInstallment = Number(monthly);
+          planMonths = yearPlan.months;
+          totalAmount = monthlyInstallment * (planMonths || 0);
+        } else {
+          // Product has no plans - direct payment/full settlement
+          if (dto.yearPlanId) {
+            throw new BadRequestException(
+              'This product does not have payment plans. Do not select a plan.',
+            );
+          }
 
-    // Create purchase and legacy payment atomically
-    const result = await this.prisma.$transaction(async (tx) => {
+          // Use product's direct amount
+          totalAmount = Number(product.amount);
+        }
+
+        // Validate already paid doesn't exceed total
+        if (alreadyPaid > totalAmount) {
+          throw new BadRequestException(
+            `Already paid amount (${alreadyPaid.toFixed(2)}) cannot exceed total contract amount (${totalAmount.toFixed(2)})`,
+          );
+        }
+
+        // Calculate remaining balance
+        const remainingBalance = totalAmount - alreadyPaid;
+        const now = new Date();
+        const lastPaymentDate = dto.lastPaymentDate
+          ? new Date(dto.lastPaymentDate)
+          : now;
+
+        // Determine purchase status
+        let purchaseStatus: PurchaseStatus;
+        if (remainingBalance <= 0) {
+          purchaseStatus = PurchaseStatus.PAID;
+        } else if (alreadyPaid > 0) {
+          purchaseStatus = PurchaseStatus.PARTIALLY_PAID;
+        } else {
+          purchaseStatus = PurchaseStatus.PENDING_PAYMENT;
+        }
+
+        // Create purchase and legacy payment atomically
+        const result = await this.prisma.$transaction(async (tx) => {
       // 1) Create the Purchase/Contract record
       const purchase = await tx.purchase.create({
         data: {
@@ -911,11 +912,11 @@ export class PurchasesService {
         });
       }
 
-      return { purchase, payment };
-    });
+          return { purchase, payment };
+        });
 
-    // Fetch updated purchase
-    const updatedPurchase = await this.prisma.purchase.findUnique({
+        // Fetch updated purchase
+        const updatedPurchase = await this.prisma.purchase.findUnique({
       where: { id: result.purchase.id },
       include: {
         product: {
@@ -937,24 +938,38 @@ export class PurchasesService {
       },
     });
 
-    if (!updatedPurchase) {
-      throw new NotFoundException('Failed to retrieve created purchase');
+      if (!updatedPurchase) {
+        throw new NotFoundException('Failed to retrieve created purchase');
+      }
+
+      // Emit real-time update
+      this.dashboardGateway.broadcastDashboardUpdate();
+
+      return {
+        purchase: updatedPurchase,
+        payment: result.payment,
+        summary: {
+          totalAmount,
+          monthlyInstallment,
+          planMonths,
+          alreadyPaid,
+          remainingBalance: Number(updatedPurchase.balance),
+          status: updatedPurchase.status,
+        },
+      };
+    } catch (error) {
+      // Re-throw known exceptions
+      if (
+        error instanceof BadRequestException ||
+        error instanceof NotFoundException
+      ) {
+        throw error;
+      }
+      // Log unexpected errors
+      console.error('[registerLegacyPlan] Unexpected error:', error);
+      throw new BadRequestException(
+        `Failed to register legacy plan: ${error instanceof Error ? error.message : 'Unknown error'}`,
+      );
     }
-
-    // Emit real-time update
-    this.dashboardGateway.broadcastDashboardUpdate();
-
-    return {
-      purchase: updatedPurchase,
-      payment: result.payment,
-      summary: {
-        totalAmount,
-        monthlyInstallment,
-        planMonths,
-        alreadyPaid,
-        remainingBalance: Number(updatedPurchase.balance),
-        status: updatedPurchase.status,
-      },
-    };
   }
 }

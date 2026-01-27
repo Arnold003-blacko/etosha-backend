@@ -62,25 +62,7 @@ export class BurialsController {
     return this.burialsService.lookupPurchase(purchaseId);
   }
 
-  @Get(':id')
-  async getDeceasedById(@Param('id') id: string) {
-    return this.burialsService.getDeceasedById(id);
-  }
-
-  @Put(':id')
-  async updateDeceased(
-    @Param('id') id: string,
-    @Body() dto: UpdateDeceasedDto,
-  ) {
-    return this.burialsService.updateDeceased(id, dto);
-  }
-
-  @Patch(':id/mark-buried')
-  async markBuried(@Param('id') id: string) {
-    return this.burialsService.markBuried(id);
-  }
-
-  // Waiver endpoints
+  // Waiver endpoints (must be before :id route)
   @Post('waivers')
   async createWaiver(@Body() dto: CreateWaiverDto) {
     return this.burialsService.createWaiver(dto);
@@ -98,6 +80,24 @@ export class BurialsController {
       req.user.id,
       req.user.level,
     );
+  }
+
+  @Get(':id')
+  async getDeceasedById(@Param('id') id: string) {
+    return this.burialsService.getDeceasedById(id);
+  }
+
+  @Put(':id')
+  async updateDeceased(
+    @Param('id') id: string,
+    @Body() dto: UpdateDeceasedDto,
+  ) {
+    return this.burialsService.updateDeceased(id, dto);
+  }
+
+  @Patch(':id/mark-buried')
+  async markBuried(@Param('id') id: string) {
+    return this.burialsService.markBuried(id);
   }
 
   // Assignment request endpoints

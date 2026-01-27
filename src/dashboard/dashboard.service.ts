@@ -20,10 +20,13 @@ export class DashboardService {
     const now = new Date();
     const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
     
-    // Get all successful payments
+    // Get all successful payments (exclude legacy settlements)
     const allPayments = await this.prisma.payment.aggregate({
       where: {
         status: PaymentStatus.SUCCESS,
+        method: {
+          not: 'LEGACY_SETTLEMENT',
+        },
       },
       _sum: {
         amount: true,
@@ -33,10 +36,13 @@ export class DashboardService {
       },
     });
 
-    // Get today's successful payments
+    // Get today's successful payments (exclude legacy settlements)
     const todayPayments = await this.prisma.payment.aggregate({
       where: {
         status: PaymentStatus.SUCCESS,
+        method: {
+          not: 'LEGACY_SETTLEMENT',
+        },
         paidAt: {
           gte: startOfToday,
         },
@@ -348,6 +354,9 @@ export class DashboardService {
           this.prisma.payment.aggregate({
             where: {
               status: PaymentStatus.SUCCESS,
+              method: {
+                not: 'LEGACY_SETTLEMENT',
+              },
               paidAt: {
                 gte: date,
                 lt: nextDate,
@@ -388,6 +397,9 @@ export class DashboardService {
           this.prisma.payment.aggregate({
             where: {
               status: PaymentStatus.SUCCESS,
+              method: {
+                not: 'LEGACY_SETTLEMENT',
+              },
               paidAt: {
                 gte: date,
                 lt: nextDate,
@@ -425,6 +437,9 @@ export class DashboardService {
         const promise = this.prisma.payment.aggregate({
           where: {
             status: PaymentStatus.SUCCESS,
+            method: {
+              not: 'LEGACY_SETTLEMENT',
+            },
             paidAt: {
               gte: startDate,
               lt: endDate,
@@ -463,10 +478,13 @@ export class DashboardService {
       color: string;
     }> = [];
 
-    // Get recent successful payments
+    // Get recent successful payments (exclude legacy settlements)
     const recentPayments = await this.prisma.payment.findMany({
       where: {
         status: PaymentStatus.SUCCESS,
+        method: {
+          not: 'LEGACY_SETTLEMENT',
+        },
         paidAt: {
           not: null,
         },
@@ -594,6 +612,11 @@ export class DashboardService {
     }
     if (method) {
       where.method = method;
+    } else {
+      // Only exclude legacy settlements if no specific method filter is applied
+      where.method = {
+        not: 'LEGACY_SETTLEMENT',
+      };
     }
 
     const [payments, total] = await Promise.all([
@@ -850,6 +873,9 @@ export class DashboardService {
         payments: {
           where: {
             status: PaymentStatus.SUCCESS,
+            method: {
+              not: 'LEGACY_SETTLEMENT', // Exclude legacy settlements from financial statement
+            },
           },
           orderBy: { paidAt: 'asc' },
           select: {
@@ -986,10 +1012,13 @@ export class DashboardService {
     const endOfMonth = new Date(year, month, 0);
     endOfMonth.setHours(23, 59, 59, 999);
 
-    // Get all successful payments for the month
+    // Get all successful payments for the month (exclude legacy settlements)
     const payments = await this.prisma.payment.findMany({
       where: {
         status: PaymentStatus.SUCCESS,
+        method: {
+          not: 'LEGACY_SETTLEMENT',
+        },
         paidAt: {
           gte: startOfMonth,
           lte: endOfMonth,
