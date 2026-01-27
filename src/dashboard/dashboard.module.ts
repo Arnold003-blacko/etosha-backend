@@ -8,9 +8,10 @@ import { BackupService } from './backup.service';
 import { LoggingInterceptor } from './logging.interceptor';
 import { AllExceptionsFilter } from './exception-logger.filter';
 import { PrismaModule } from '../prisma/prisma.module';
+import { PurchasesModule } from '../purchases/purchases.module';
 
 @Module({
-  imports: [PrismaModule],
+  imports: [PrismaModule, PurchasesModule],
   controllers: [DashboardController],
   providers: [
     DashboardService,

@@ -4,6 +4,9 @@ import { DashboardService } from './dashboard.service';
 import { LoggerService, LogLevel, LogCategory } from './logger.service';
 import { BackupService } from './backup.service';
 import { StaffJwtGuard } from '../staff-auth/staff-jwt.guard';
+import { PurchasesService } from '../purchases/purchases.service';
+import { CreatePurchaseWithPaymentDto } from '../purchases/dto/create-purchase-with-payment.dto';
+import { CreateExistingPayerDto } from '../purchases/dto/create-existing-payer.dto';
 
 @Controller('dashboard')
 @UseGuards(StaffJwtGuard)
@@ -12,6 +15,7 @@ export class DashboardController {
     private readonly dashboardService: DashboardService,
     private readonly loggerService: LoggerService,
     private readonly backupService: BackupService,
+    private readonly purchasesService: PurchasesService,
   ) {}
 
   /* ============================
@@ -90,6 +94,24 @@ export class DashboardController {
     }
 
     return this.dashboardService.getMonthlyIncomeStatement(yearNum, monthNum);
+  }
+
+  /* ============================
+   * CREATE PURCHASE WITH INITIAL PAYMENT (ADMIN)
+   * ============================ */
+  @Post('purchases/create-with-payment')
+  createPurchaseWithInitialPayment(@Body() dto: CreatePurchaseWithPaymentDto) {
+    return this.purchasesService.createPurchaseWithInitialPayment(dto);
+  }
+
+  /* ============================
+   * CREATE EXISTING PAYER PURCHASE (ADMIN)
+   * For clients who were paying before the system was implemented
+   * Records their existing payment and sets them up on their payment plan
+   * ============================ */
+  @Post('purchases/create-existing-payer')
+  createExistingPayerPurchase(@Body() dto: CreateExistingPayerDto) {
+    return this.purchasesService.createExistingPayerPurchase(dto);
   }
 
   /* ============================
