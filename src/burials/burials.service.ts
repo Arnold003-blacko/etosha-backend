@@ -179,6 +179,10 @@ export class BurialsService {
         },
       });
 
+      if (!result) {
+        throw new NotFoundException('Failed to retrieve created burial');
+      }
+
       // Check if SMS should be triggered (after transaction completes)
       await this.maybeTriggerBurialSms(result.id);
 
@@ -927,6 +931,7 @@ export class BurialsService {
       updateData.burialDate = dto.burialDate ? new Date(dto.burialDate) : null;
     if (dto.notes !== undefined) updateData.notes = dto.notes;
     if (dto.status !== undefined) updateData.status = dto.status;
+    if (dto.purchaseId !== undefined) updateData.purchaseId = dto.purchaseId || null;
 
     // Update purchaseLinkedAt if purchaseId is being set
     if (dto.purchaseId !== undefined && dto.purchaseId && !deceased.purchaseLinkedAt) {

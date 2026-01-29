@@ -49,4 +49,8 @@ export class UpdateDeceasedDto {
   @IsOptional()
   @IsEnum(BurialStatus)
   status?: BurialStatus;
+
+  @IsOptional()
+  @IsUUID()
+  purchaseId?: string;
 }

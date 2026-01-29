@@ -130,7 +130,7 @@ export class DeceasedService {
       include: {
         deceased: {
           include: {
-            burialNextOfKin: true,
+            nextOfKin: true,
           },
         },
         product: {
@@ -146,7 +146,7 @@ export class DeceasedService {
     });
 
     return purchases
-      .filter((p) => p.deceased)
+      .filter((p): p is typeof p & { deceased: NonNullable<typeof p.deceased> } => p.deceased !== null)
       .map((p) => ({
         ...p.deceased,
         purchase: {
@@ -155,7 +155,7 @@ export class DeceasedService {
           purchaseType: p.purchaseType,
           createdAt: p.createdAt,
         },
-        nextOfKin: p.deceased?.burialNextOfKin || null,
+        nextOfKin: p.deceased.nextOfKin || null,
       }));
   }
 
@@ -169,7 +169,7 @@ export class DeceasedService {
         purchase: {
           select: { memberId: true },
         },
-        burialNextOfKin: true,
+        nextOfKin: true,
       },
     });
 
@@ -177,11 +177,11 @@ export class DeceasedService {
       throw new NotFoundException('Deceased not found');
     }
 
-    if (deceased.purchase.memberId !== memberId) {
+    if (!deceased.purchase || deceased.purchase.memberId !== memberId) {
       throw new ForbiddenException('Not your deceased record');
     }
 
-    return deceased.burialNextOfKin;
+    return deceased.nextOfKin;
   }
 
   /**
@@ -211,7 +211,7 @@ export class DeceasedService {
       throw new NotFoundException('Deceased not found');
     }
 
-    if (deceased.purchase.memberId !== memberId) {
+    if (!deceased.purchase || deceased.purchase.memberId !== memberId) {
       throw new ForbiddenException('Not your deceased record');
     }
 

@@ -309,6 +309,11 @@ model Deceased {
   updatedAt DateTime @default(now()) @updatedAt
   createdBy String? // Staff ID who created the record
 
+  // Tracking fields for burial workflow
+  purchaseLinkedAt   DateTime? // When purchase was linked
+  deceasedCapturedAt DateTime? // When all required deceased details were captured
+  smsNotifiedAt      DateTime? // When SMS notification was sent
+
   purchase Purchase? @relation(fields: [purchaseId], references: [id])
   waiver   Waiver?
   graveSlot GraveSlot?
