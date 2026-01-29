@@ -12,5 +12,6 @@ import { DashboardModule } from '../dashboard/dashboard.module'; // For real-tim
   ],
   providers: [DeceasedService],
   controllers: [DeceasedController],
+  exports: [DeceasedService], // Export DeceasedService so it can be used in other modules
 })
 export class DeceasedModule {}
