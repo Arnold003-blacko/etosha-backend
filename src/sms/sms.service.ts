@@ -6,12 +6,12 @@ import {
   SmsStatus,
   StaffType,
 } from '@prisma/client';
-import * as twilio from 'twilio';
+import twilio from 'twilio';
 
 @Injectable()
 export class SmsService {
   private readonly logger = new Logger(SmsService.name);
-  private twilioClient: twilio.Twilio | null = null;
+  private twilioClient: ReturnType<typeof twilio> | null = null;
 
   constructor(private readonly prisma: PrismaService) {
     // Initialize Twilio client if credentials are available
