@@ -35,6 +35,7 @@ export class TransactService {
 
   constructor(
     private readonly prisma: PrismaService,
+    @Inject(forwardRef(() => PaymentsService))
     private readonly paymentsService: PaymentsService,
     private readonly paynowService: PayNowService,
     private readonly purchasesService: PurchasesService,
