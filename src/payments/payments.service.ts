@@ -16,9 +16,11 @@ import {
   PaymentStatus,
   PurchaseStatus,
   PurchaseType,
+  ItemCategory,
 } from '@prisma/client';
 import { PayNowService } from '../paynow/paynow.service';
 import { DashboardGateway } from '../dashboard/dashboard.gateway';
+import { TransactService } from '../transact/transact.service';
 
 @Injectable()
 export class PaymentsService {
@@ -27,6 +29,8 @@ export class PaymentsService {
     private readonly paynow: PayNowService,
     @Inject(forwardRef(() => DashboardGateway))
     private readonly dashboardGateway: DashboardGateway,
+    @Inject(forwardRef(() => TransactService))
+    private readonly transactService?: TransactService,
   ) {}
 
   /* =====================================================
@@ -217,7 +221,7 @@ export class PaymentsService {
       phone,
     });
 
-    await this.prisma.payment.create({
+    const payment = await this.prisma.payment.create({
       data: {
         purchaseId: purchase.id,
         memberId,
@@ -230,7 +234,7 @@ export class PaymentsService {
       },
     });
 
-    return { message: 'EcoCash push sent', reference };
+    return { message: 'EcoCash push sent', reference, paymentId: payment.id };
   }
 
   /* =====================================================
@@ -368,6 +372,37 @@ export class PaymentsService {
 
     // Emit real-time update
     this.dashboardGateway.broadcastDashboardUpdate();
+
+    // Process pending deceased/next of kin details if purchase is fully paid and is an immediate burial
+    // This handles webhook payments (EcoCash) that finalize through this method
+    if (
+      status === PaymentStatus.SUCCESS &&
+      newBalance <= 0 &&
+      purchase.purchaseType === PurchaseType.IMMEDIATE &&
+      this.transactService
+    ) {
+      // Get product to check category
+      const product = await this.prisma.product.findUnique({
+        where: { id: purchase.productId },
+      });
+
+      if (product?.category === ItemCategory.SERENITY_GROUND) {
+        // Process in background to avoid blocking
+        setImmediate(async () => {
+          try {
+            await this.transactService!.processPendingDetailsForPurchase(
+              purchase.id,
+              purchase.memberId,
+            );
+          } catch (err) {
+            console.error(
+              `[PAYMENTS] Failed to process pending details after payment finalization:`,
+              err,
+            );
+          }
+        });
+      }
+    }
   }
 
   /* =====================================================

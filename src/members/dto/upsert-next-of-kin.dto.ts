@@ -2,22 +2,29 @@ import {
   IsString,
   IsOptional,
   IsEmail,
+  IsNotEmpty,
 } from 'class-validator';
+import { Transform } from 'class-transformer';
 
 export class UpsertNextOfKinDto {
-  @IsString()
+  @IsNotEmpty({ message: 'fullName must not be empty' })
+  @IsString({ message: 'fullName must be a string' })
   fullName: string;
 
-  @IsString()
+  @IsNotEmpty({ message: 'relationship must not be empty' })
+  @IsString({ message: 'relationship must be a string' })
   relationship: string;
 
-  @IsString()
+  @IsNotEmpty({ message: 'phone must not be empty' })
+  @IsString({ message: 'phone must be a string' })
   phone: string;
 
   @IsOptional()
-  @IsEmail()
+  @Transform(({ value }) => value === '' ? undefined : value)
+  @IsEmail({}, { message: 'email must be a valid email address' })
   email?: string;
 
-  @IsString()
+  @IsNotEmpty({ message: 'address must not be empty' })
+  @IsString({ message: 'address must be a string' })
   address: string;
 }

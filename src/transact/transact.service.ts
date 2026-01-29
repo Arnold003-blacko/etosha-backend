@@ -8,6 +8,7 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { PaymentsService } from '../payments/payments.service';
+import { PayNowService } from '../paynow/paynow.service';
 import { PurchasesService } from '../purchases/purchases.service';
 import { MembersService } from '../members/members.service';
 import { DeceasedService } from '../deceased/deceased.service';
@@ -16,7 +17,7 @@ import { LoggerService, LogCategory } from '../dashboard/logger.service';
 import { CashPaymentDto } from './dto/cash-payment.dto';
 import { CreateLegacyPlanDto } from './dto/legacy-plan.dto';
 import { StaffCreatePurchaseDto } from './dto/staff-create-purchase.dto';
-import { PurchaseStatus, PurchaseType, ItemCategory } from '@prisma/client';
+import { PurchaseStatus, PurchaseType, ItemCategory, PaymentStatus } from '@prisma/client';
 import { CreateDeceasedDto } from '../deceased/dto/create-deceased.dto';
 import { UpsertNextOfKinDto } from '../members/dto/upsert-next-of-kin.dto';
 import { DeceasedDetailsDto } from './dto/deceased-details.dto';
@@ -35,6 +36,7 @@ export class TransactService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly paymentsService: PaymentsService,
+    private readonly paynowService: PayNowService,
     private readonly purchasesService: PurchasesService,
     private readonly membersService: MembersService,
     private readonly deceasedService: DeceasedService,
@@ -1051,6 +1053,90 @@ export class TransactService {
 
       throw new BadRequestException('Failed to initiate EcoCash payment');
     }
+  }
+
+  /* =====================================================
+   * POLL PAYMENT STATUS (STAFF)
+   * Allows staff to poll payment status for any payment
+   * ===================================================== */
+  async pollPaymentStatus(paymentId: string, staffUserId: string) {
+    // Staff can poll any payment, so we bypass memberId check
+    // by using PaymentsService's internal polling logic
+    const payment = await this.prisma.payment.findUnique({
+      where: { id: paymentId },
+    });
+
+    if (!payment) {
+      throw new NotFoundException('Payment not found');
+    }
+
+    // Use PaymentsService's polling logic but bypass memberId check
+    if (payment.status !== PaymentStatus.INITIATED) {
+      return { status: payment.status };
+    }
+
+    if (!payment.pollUrl) {
+      return { status: payment.status };
+    }
+
+    const result = await this.paynowService.pollPayment(payment.pollUrl);
+    const mapped = this.mapPayNowStatus(result.status);
+
+    // Finalize payment using PaymentsService logic
+    await this.paymentsService.finalizePayment(payment.id, mapped);
+
+    // If payment succeeded, check if we need to process pending deceased/next of kin details
+    if (mapped === PaymentStatus.SUCCESS) {
+      // Get updated purchase to check status
+      const updatedPurchase = await this.prisma.purchase.findUnique({
+        where: { id: payment.purchaseId },
+        include: { product: true },
+      });
+
+      // Process pending details if purchase is fully paid and is an immediate burial
+      if (
+        updatedPurchase?.status === PurchaseStatus.PAID &&
+        updatedPurchase?.purchaseType === PurchaseType.IMMEDIATE &&
+        updatedPurchase?.product?.category === ItemCategory.SERENITY_GROUND
+      ) {
+        // Process in background to avoid blocking the response
+        setImmediate(async () => {
+          try {
+            await this.processPendingDetailsForPurchase(
+              payment.purchaseId,
+              payment.memberId,
+              staffUserId,
+            );
+          } catch (err) {
+            this.logger.error(
+              `[TRANSACT] Failed to process pending details after payment: ${err instanceof Error ? err.message : 'Unknown error'}`,
+              err instanceof Error ? err : new Error(String(err)),
+              LogCategory.SYSTEM,
+              {
+                eventType: 'transact_process_pending_details_error',
+                purchaseId: payment.purchaseId,
+                paymentId: payment.id,
+                memberId: payment.memberId,
+                staffUserId,
+              },
+            );
+          }
+        });
+      }
+    }
+
+    return { status: mapped };
+  }
+
+  private mapPayNowStatus(status: string): PaymentStatus {
+    const s = status?.toLowerCase();
+    if (s === 'paid' || s === 'awaiting delivery' || s === 'delivered') {
+      return PaymentStatus.SUCCESS;
+    }
+    if (s === 'failed' || s === 'cancelled' || s === 'expired') {
+      return PaymentStatus.FAILED;
+    }
+    return PaymentStatus.INITIATED;
   }
 
   /* =====================================================

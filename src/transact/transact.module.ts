@@ -3,6 +3,7 @@ import { TransactController } from './transact.controller';
 import { TransactService } from './transact.service';
 import { PrismaModule } from '../prisma/prisma.module';
 import { PaymentsModule } from '../payments/payments.module';
+import { PayNowModule } from '../paynow/paynow.module';
 import { PurchasesModule } from '../purchases/purchases.module';
 import { MembersModule } from '../members/members.module';
 import { DeceasedModule } from '../deceased/deceased.module';
@@ -11,7 +12,8 @@ import { DashboardModule } from '../dashboard/dashboard.module';
 @Module({
   imports: [
     PrismaModule,
-    PaymentsModule,
+    forwardRef(() => PaymentsModule), // Use forwardRef to handle circular dependency
+    PayNowModule,
     PurchasesModule,
     MembersModule,
     DeceasedModule,

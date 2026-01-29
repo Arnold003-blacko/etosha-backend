@@ -50,11 +50,33 @@ async function bootstrap() {
         enableImplicitConversion: true,
       },
       exceptionFactory: (errors) => {
-        // Custom error messages for better debugging
-        const messages = errors.map(error => {
-          const constraints = Object.values(error.constraints || {});
-          return `${error.property}: ${constraints.join(', ')}`;
-        });
+        // Recursively extract validation error messages including nested objects
+        const extractErrors = (errorList: any[], prefix = ''): string[] => {
+          const messages: string[] = [];
+          
+          errorList.forEach(error => {
+            const propertyPath = prefix ? `${prefix}.${error.property}` : error.property;
+            
+            // If there are constraints (direct validation errors)
+            if (error.constraints && Object.keys(error.constraints).length > 0) {
+              const constraintMessages = Object.values(error.constraints);
+              constraintMessages.forEach((msg: any) => {
+                messages.push(`${propertyPath}: ${msg}`);
+              });
+            }
+            
+            // If there are nested children (for nested objects like nextOfKinDetails, deceasedDetails)
+            if (error.children && error.children.length > 0) {
+              const nestedMessages = extractErrors(error.children, propertyPath);
+              messages.push(...nestedMessages);
+            }
+          });
+          
+          return messages;
+        };
+        
+        const messages = extractErrors(errors);
+        
         return new BadRequestException({
           statusCode: 400,
           message: 'Validation failed',

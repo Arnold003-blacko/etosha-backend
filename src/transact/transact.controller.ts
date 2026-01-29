@@ -170,6 +170,25 @@ export class TransactController {
   }
 
   /* =====================================================
+   * POLL PAYMENT STATUS (STAFF)
+   * POST /transact/payments/poll
+   * Allows staff to poll payment status for any payment
+   * ===================================================== */
+  @Post('payments/poll')
+  @HttpCode(HttpStatus.OK)
+  async pollPayment(
+    @Body('paymentId') paymentId: string,
+    @Req() req: any,
+  ) {
+    if (!paymentId) {
+      throw new BadRequestException('paymentId is required');
+    }
+
+    const staffUserId = req.user?.id || req.user?.sub || null;
+    return await this.transactService.pollPaymentStatus(paymentId, staffUserId);
+  }
+
+  /* =====================================================
    * CREATE LEGACY PLAN
    * POST /transact/plans/legacy
    * ===================================================== */

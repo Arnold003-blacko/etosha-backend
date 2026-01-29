@@ -3,36 +3,43 @@ import {
   IsString,
   IsOptional,
   IsDateString,
+  IsNotEmpty,
 } from 'class-validator';
 
 export class DeceasedDetailsDto {
-  @IsString()
+  @IsNotEmpty({ message: 'fullName must not be empty' })
+  @IsString({ message: 'fullName must be a string' })
   fullName: string;
 
-  @IsDateString()
+  @IsNotEmpty({ message: 'dateOfBirth must not be empty' })
+  @IsDateString({}, { message: 'dateOfBirth must be a valid ISO date string (YYYY-MM-DD)' })
   dateOfBirth: string;
 
-  @IsString()
+  @IsNotEmpty({ message: 'gender must not be empty' })
+  @IsString({ message: 'gender must be a string' })
   gender: string;
 
-  @IsString()
+  @IsNotEmpty({ message: 'address must not be empty' })
+  @IsString({ message: 'address must be a string' })
   address: string;
 
-  @IsString()
+  @IsNotEmpty({ message: 'relationship must not be empty' })
+  @IsString({ message: 'relationship must be a string' })
   relationship: string;
 
   @IsOptional()
-  @IsString()
+  @IsString({ message: 'causeOfDeath must be a string' })
   causeOfDeath?: string;
 
   @IsOptional()
-  @IsString()
+  @IsString({ message: 'funeralParlor must be a string' })
   funeralParlor?: string;
 
-  @IsDateString()
+  @IsNotEmpty({ message: 'dateOfDeath must not be empty' })
+  @IsDateString({}, { message: 'dateOfDeath must be a valid ISO date string (YYYY-MM-DD)' })
   dateOfDeath: string;
 
   @IsOptional()
-  @IsDateString()
+  @IsDateString({}, { message: 'expectedBurial must be a valid ISO date string (YYYY-MM-DD)' })
   expectedBurial?: string;
 }
