@@ -306,7 +306,7 @@ export class PaymentsService {
   /* =====================================================
    * FINALIZE PAYMENT (PURCHASE UPDATE GUARANTEED)
    * ===================================================== */
-  private async finalizePayment(
+  async finalizePayment(
     paymentId: string,
     status: PaymentStatus,
   ) {
