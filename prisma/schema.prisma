@@ -78,6 +78,30 @@ enum CommissionStatus {
   ISSUED
 }
 
+enum StaffType {
+  SITE
+  OFFICE
+  PASTORAL
+}
+
+enum SmsOutboxEventType {
+  BURIAL_READY_NOTIFY_TEAMS
+  DEBTOR_MONTHLY_REMINDER
+}
+
+enum SmsCategory {
+  OPS
+  PASTORAL
+  DEBTOR
+}
+
+enum SmsStatus {
+  QUEUED
+  SENT
+  DELIVERED
+  FAILED
+}
+
 ////////////////////
 /// CORE MODELS
 ////////////////////
@@ -110,11 +134,6 @@ model Product {
 /// STAFF (ADMIN WEB)
 ////////////////////
 
-enum StaffLocation {
-  HARARE_OFFICE
-  GARDEN_SITE
-}
-
 model Staff {
   id          String        @id @default(cuid())
   firstName   String
@@ -124,7 +143,9 @@ model Staff {
   nationalId  String        @unique
   dateOfBirth DateTime
   address     String
-  location    StaffLocation
+
+  /// Staff type: SITE, OFFICE, or PASTORAL
+  staffType   StaffType    @default(OFFICE)
 
   /// Numeric level used for authorization:
   /// 1 = general worker
@@ -154,6 +175,8 @@ model Staff {
 
   @@index([email])
   @@index([level])
+  @@index([staffType])
+  @@index([isActive, staffType])
 }
 
 model Member {
@@ -492,4 +515,51 @@ model Commission {
   @@index([agentStaffId])
   @@index([saleDate])
   @@index([company])
+}
+
+////////////////////
+/// SMS NOTIFICATIONS
+////////////////////
+
+model SmsOutbox {
+  id        String              @id @default(uuid()) @db.Uuid
+  eventType SmsOutboxEventType
+  payload   Json                // Event-specific payload (e.g., { burialId: "..." })
+  status    String              @default("PENDING") // PENDING, PROCESSING, COMPLETED, FAILED
+  retryCount Int                @default(0)
+  maxRetries Int                @default(3)
+  errorMessage String?           @db.Text
+  processedAt DateTime?
+  createdAt DateTime            @default(now())
+  updatedAt DateTime            @updatedAt
+
+  smsLogs SmsLog[]
+
+  @@index([status])
+  @@index([eventType])
+  @@index([createdAt])
+}
+
+model SmsLog {
+  id              String      @id @default(uuid()) @db.Uuid
+  outboxId        String?     @db.Uuid
+  recipientPhone  String       // E.164 format
+  messageBody     String       @db.Text
+  category        SmsCategory
+  twilioMessageSid String?    // Twilio Message SID
+  status          SmsStatus   @default(QUEUED)
+  errorMessage    String?     @db.Text
+  sentAt          DateTime?
+  deliveredAt     DateTime?
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+
+  outbox SmsOutbox? @relation(fields: [outboxId], references: [id], onDelete: SetNull)
+
+  @@index([outboxId])
+  @@index([status])
+  @@index([category])
+  @@index([recipientPhone])
+  @@index([twilioMessageSid])
+  @@index([createdAt])
 }

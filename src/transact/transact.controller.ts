@@ -70,6 +70,21 @@ export class TransactController {
   }
 
   /* =====================================================
+   * GET MEMBER NEXT OF KIN
+   * GET /transact/members/:memberId/next-of-kin
+   * ===================================================== */
+  @Get('members/:memberId/next-of-kin')
+  @HttpCode(HttpStatus.OK)
+  async getMemberNextOfKin(@Param('memberId') memberId: string, @Req() req: any) {
+    try {
+      const userId = req.user?.id || req.user?.sub || null;
+      return await this.transactService.getMemberNextOfKin(memberId, userId);
+    } catch (error) {
+      throw error;
+    }
+  }
+
+  /* =====================================================
    * INITIATE PURCHASE (WEB - STAFF)
    * POST /transact/purchases/initiate
    * ===================================================== */

@@ -8,6 +8,7 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { DashboardGateway } from '../dashboard/dashboard.gateway';
+import { SmsService } from '../sms/sms.service';
 import { CreateBurialDto } from './dto/create-burial.dto';
 import { CreateWaiverDto } from './dto/create-waiver.dto';
 import { ApproveWaiverDto } from './dto/approve-waiver.dto';
@@ -28,6 +29,7 @@ export class BurialsService {
     private readonly prisma: PrismaService,
     @Inject(forwardRef(() => DashboardGateway))
     private readonly dashboardGateway: DashboardGateway,
+    private readonly smsService: SmsService,
   ) {}
 
   /**
@@ -84,6 +86,9 @@ export class BurialsService {
         status = BurialStatus.PENDING_WAIVER_APPROVAL;
       }
 
+      // Set purchaseLinkedAt if purchase is provided
+      const purchaseLinkedAt = dto.purchaseId ? new Date() : null;
+
       // Create deceased record
       const deceased = await tx.deceased.create({
         data: {
@@ -103,6 +108,8 @@ export class BurialsService {
           notes: dto.notes || null,
           status,
           createdBy: staffId,
+          purchaseLinkedAt,
+          deceasedCapturedAt: new Date(), // All required fields are present
         },
       });
 
@@ -146,7 +153,7 @@ export class BurialsService {
 
       this.dashboardGateway.broadcastDashboardUpdate();
 
-      return tx.deceased.findUnique({
+      const result = await tx.deceased.findUnique({
         where: { id: deceased.id },
         include: {
           purchase: {
@@ -171,7 +178,61 @@ export class BurialsService {
           nextOfKin: true,
         },
       });
+
+      // Check if SMS should be triggered (after transaction completes)
+      await this.maybeTriggerBurialSms(result.id);
+
+      return result;
     });
+  }
+
+  /**
+   * Check if burial SMS should be triggered and queue if conditions are met
+   */
+  private async maybeTriggerBurialSms(burialId: string): Promise<void> {
+    const burial = await this.prisma.deceased.findUnique({
+      where: { id: burialId },
+      include: {
+        nextOfKin: true,
+        purchase: {
+          include: {
+            product: {
+              select: {
+                pricingSection: true,
+              },
+            },
+          },
+        },
+      },
+    });
+
+    if (!burial) {
+      return;
+    }
+
+    // Check if SMS should be sent:
+    // 1. Purchase details entered (purchaseLinkedAt is set OR purchaseId exists)
+    // 2. Deceased details entered (deceasedCapturedAt is set AND all required fields present)
+    // 3. SMS not already sent (smsNotifiedAt is null)
+
+    const hasPurchaseDetails =
+      burial.purchaseLinkedAt !== null || burial.purchaseId !== null;
+
+    const hasDeceasedDetails =
+      burial.deceasedCapturedAt !== null &&
+      burial.fullName &&
+      burial.expectedBurial &&
+      burial.nextOfKin &&
+      burial.nextOfKin.fullName &&
+      burial.nextOfKin.phone &&
+      burial.nextOfKin.relationship;
+
+    const smsNotSent = burial.smsNotifiedAt === null;
+
+    if (hasPurchaseDetails && hasDeceasedDetails && smsNotSent) {
+      // Queue SMS notification
+      await this.smsService.queueBurialNotificationSms(burialId);
+    }
   }
 
   /**
@@ -836,6 +897,10 @@ export class BurialsService {
   async updateDeceased(id: string, dto: UpdateDeceasedDto) {
     const deceased = await this.prisma.deceased.findUnique({
       where: { id },
+      include: {
+        nextOfKin: true,
+        purchase: true,
+      },
     });
 
     if (!deceased) {
@@ -863,7 +928,27 @@ export class BurialsService {
     if (dto.notes !== undefined) updateData.notes = dto.notes;
     if (dto.status !== undefined) updateData.status = dto.status;
 
-    return this.prisma.deceased.update({
+    // Update purchaseLinkedAt if purchaseId is being set
+    if (dto.purchaseId !== undefined && dto.purchaseId && !deceased.purchaseLinkedAt) {
+      updateData.purchaseLinkedAt = new Date();
+    }
+
+    // Update deceasedCapturedAt if all required fields are now present
+    const hasAllRequiredFields =
+      (updateData.fullName || deceased.fullName) &&
+      (updateData.expectedBurial !== undefined
+        ? updateData.expectedBurial
+        : deceased.expectedBurial) &&
+      deceased.nextOfKin &&
+      deceased.nextOfKin.fullName &&
+      deceased.nextOfKin.phone &&
+      deceased.nextOfKin.relationship;
+
+    if (hasAllRequiredFields && !deceased.deceasedCapturedAt) {
+      updateData.deceasedCapturedAt = new Date();
+    }
+
+    const updated = await this.prisma.deceased.update({
       where: { id },
       data: updateData,
       include: {
@@ -889,6 +974,11 @@ export class BurialsService {
         nextOfKin: true,
       },
     });
+
+    // Check if SMS should be triggered
+    await this.maybeTriggerBurialSms(id);
+
+    return updated;
   }
 
   /**

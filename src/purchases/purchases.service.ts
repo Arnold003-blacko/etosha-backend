@@ -19,6 +19,7 @@ import {
 } from '@prisma/client';
 import { resolveMatrixPrice } from '../pricing/pricing.service';
 import { DashboardGateway } from '../dashboard/dashboard.gateway';
+import { randomUUID } from 'crypto';
 
 /**
  * UUID validation regex pattern
@@ -194,6 +195,7 @@ export class PurchasesService {
     
     const purchase = await this.prisma.purchase.findUnique({
       where: { id: purchaseId },
+      include: { deceased: true },
     });
 
     if (!purchase) {
@@ -201,7 +203,7 @@ export class PurchasesService {
     }
 
     if (purchase.memberId !== memberId) {
-      throw new ForbiddenException();
+      throw new ForbiddenException('This purchase does not belong to you');
     }
 
     if (purchase.purchaseType !== PurchaseType.FUTURE) {
@@ -211,11 +213,14 @@ export class PurchasesService {
     }
 
     if (purchase.status !== PurchaseStatus.PAID) {
-      throw new BadRequestException('Purchase not fully paid');
+      throw new BadRequestException('Purchase must be fully paid before redemption');
     }
 
-    if (purchase.redeemedAt) {
-      throw new BadRequestException('Purchase already redeemed');
+    // Check if already redeemed - check both redeemedAt and deceased existence
+    if (purchase.redeemedAt || purchase.deceased) {
+      throw new BadRequestException(
+        'This purchase has already been redeemed. Each purchase can only be redeemed once.'
+      );
     }
 
     return { ok: true };
@@ -223,6 +228,8 @@ export class PurchasesService {
 
   /* =====================================================
    * SAVE DECEASED DETAILS
+   * Note: This method is deprecated in favor of DeceasedService.createAndRedeem()
+   * which properly creates BurialNextOfKin. Keeping for backward compatibility.
    * ===================================================== */
   async saveDeceased(
     purchaseId: string,
@@ -236,6 +243,15 @@ export class PurchasesService {
       dateOfBirth: string;
       dateOfDeath: string;
       expectedBurial?: string;
+      // Optional next of kin - if not provided, will try to get from pending details
+      nextOfKin?: {
+        fullName: string;
+        relationship: string;
+        phone: string;
+        email?: string;
+        address: string;
+        isBuyer?: boolean;
+      };
     },
     memberId: string,
   ) {
@@ -244,6 +260,7 @@ export class PurchasesService {
     
     const purchase = await this.prisma.purchase.findUnique({
       where: { id: purchaseId },
+      include: { member: true, deceased: true },
     });
 
     if (!purchase) {
@@ -254,39 +271,82 @@ export class PurchasesService {
       throw new ForbiddenException();
     }
 
-    const deceased = await this.prisma.deceased.upsert({
-      where: { purchaseId },
-      update: {
-        ...data,
-        dateOfBirth: new Date(data.dateOfBirth),
-        dateOfDeath: new Date(data.dateOfDeath),
-        expectedBurial: data.expectedBurial
-          ? new Date(data.expectedBurial)
-          : null,
-      },
-      create: {
-        purchaseId,
-        ...data,
-        dateOfBirth: new Date(data.dateOfBirth),
-        dateOfDeath: new Date(data.dateOfDeath),
-        expectedBurial: data.expectedBurial
-          ? new Date(data.expectedBurial)
-          : null,
-      },
-    });
+    // Check if deceased already exists
+    if (purchase.deceased) {
+      throw new BadRequestException('Deceased details already saved for this purchase');
+    }
 
-    // ✅ MARK AS REDEEMED ONCE DECEASED DETAILS ARE SAVED
-    if (!purchase.redeemedAt) {
-      await this.prisma.purchase.update({
+    return this.prisma.$transaction(async (tx) => {
+      // Create deceased
+      const deceased = await tx.deceased.create({
+        data: {
+          purchaseId,
+          fullName: data.fullName,
+          dateOfBirth: new Date(data.dateOfBirth),
+          dateOfDeath: new Date(data.dateOfDeath),
+          gender: data.gender,
+          address: data.address,
+          relationship: data.relationship,
+          causeOfDeath: data.causeOfDeath || null,
+          funeralParlor: data.funeralParlor || null,
+          expectedBurial: data.expectedBurial
+            ? new Date(data.expectedBurial)
+            : null,
+        },
+      });
+
+      // Create BurialNextOfKin - tied to deceased, not member
+      // Use provided next of kin or try to get from member's NextOfKin as fallback
+      let nextOfKinData = data.nextOfKin;
+      
+      if (!nextOfKinData) {
+        // Try to get from member's NextOfKin as fallback
+        const memberNextOfKin = await tx.nextOfKin.findUnique({
+          where: { memberId: purchase.memberId },
+        });
+        
+        if (memberNextOfKin) {
+          nextOfKinData = {
+            fullName: memberNextOfKin.fullName,
+            relationship: memberNextOfKin.relationship,
+            phone: memberNextOfKin.phone,
+            email: memberNextOfKin.email || undefined,
+            address: memberNextOfKin.address,
+            isBuyer: false,
+          };
+        }
+      }
+
+      if (nextOfKinData) {
+        // Check if buyer is the next of kin
+        const isBuyer = purchase.member && 
+          nextOfKinData.fullName.toLowerCase().includes(purchase.member.firstName.toLowerCase()) &&
+          nextOfKinData.fullName.toLowerCase().includes(purchase.member.lastName.toLowerCase());
+
+        await tx.burialNextOfKin.create({
+          data: {
+            deceasedId: deceased.id,
+            fullName: nextOfKinData.fullName,
+            relationship: nextOfKinData.relationship,
+            phone: nextOfKinData.phone,
+            email: nextOfKinData.email || null,
+            address: nextOfKinData.address,
+            isBuyer: nextOfKinData.isBuyer || isBuyer || false,
+          },
+        });
+      }
+
+      // ✅ MARK AS REDEEMED ONCE DECEASED DETAILS ARE SAVED
+      await tx.purchase.update({
         where: { id: purchaseId },
         data: {
           redeemedAt: new Date(),
           redeemedByMemberId: memberId,
         },
       });
-    }
 
-    return deceased;
+      return deceased;
+    });
   }
 
   /* =====================================================
@@ -834,18 +894,18 @@ export class PurchasesService {
           ? new Date(dto.lastPaymentDate)
           : now;
 
-        // Determine purchase status
-        let purchaseStatus: PurchaseStatus;
-        if (remainingBalance <= 0) {
-          purchaseStatus = PurchaseStatus.PAID;
-        } else if (alreadyPaid > 0) {
-          purchaseStatus = PurchaseStatus.PARTIALLY_PAID;
-        } else {
-          purchaseStatus = PurchaseStatus.PENDING_PAYMENT;
-        }
+    // Determine purchase status
+    let purchaseStatus: PurchaseStatus;
+    if (remainingBalance <= 0) {
+      purchaseStatus = PurchaseStatus.PAID;
+    } else if (alreadyPaid > 0) {
+      purchaseStatus = PurchaseStatus.PARTIALLY_PAID;
+    } else {
+      purchaseStatus = PurchaseStatus.PENDING_PAYMENT;
+    }
 
-        // Create purchase and legacy payment atomically
-        const result = await this.prisma.$transaction(async (tx) => {
+    // Create purchase and legacy payment atomically
+    const result = await this.prisma.$transaction(async (tx) => {
       // 1) Create the Purchase/Contract record
       const purchase = await tx.purchase.create({
         data: {
@@ -863,8 +923,6 @@ export class PurchasesService {
       // 2) Create the Historic Payment as LEGACY_SETTLEMENT
       let payment: any = null;
       if (alreadyPaid > 0) {
-        const { randomUUID } = await import('crypto');
-
         payment = await tx.payment.create({
           data: {
             purchaseId: purchase.id,
@@ -915,8 +973,8 @@ export class PurchasesService {
       return { purchase, payment };
     });
 
-        // Fetch updated purchase
-        const updatedPurchase = await this.prisma.purchase.findUnique({
+    // Fetch updated purchase
+    const updatedPurchase = await this.prisma.purchase.findUnique({
       where: { id: result.purchase.id },
       include: {
         product: {
@@ -938,25 +996,25 @@ export class PurchasesService {
       },
     });
 
-      if (!updatedPurchase) {
-        throw new NotFoundException('Failed to retrieve created purchase');
-      }
+    if (!updatedPurchase) {
+      throw new NotFoundException('Failed to retrieve created purchase');
+    }
 
-      // Emit real-time update
-      this.dashboardGateway.broadcastDashboardUpdate();
+    // Emit real-time update
+    this.dashboardGateway.broadcastDashboardUpdate();
 
-      return {
-        purchase: updatedPurchase,
-        payment: result.payment,
-        summary: {
-          totalAmount,
-          monthlyInstallment,
-          planMonths,
-          alreadyPaid,
-          remainingBalance: Number(updatedPurchase.balance),
-          status: updatedPurchase.status,
-        },
-      };
+    return {
+      purchase: updatedPurchase,
+      payment: result.payment,
+      summary: {
+        totalAmount,
+        monthlyInstallment,
+        planMonths,
+        alreadyPaid,
+        remainingBalance: Number(updatedPurchase.balance),
+        status: updatedPurchase.status,
+      },
+    };
     } catch (error) {
       // Re-throw known exceptions
       if (

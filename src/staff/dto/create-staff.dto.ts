@@ -7,6 +7,7 @@ import {
   Min,
   Max,
   MinLength,
+  IsOptional,
 } from 'class-validator';
 
 export class CreateStaffDto {
@@ -36,8 +37,8 @@ export class CreateStaffDto {
   @IsString()
   address: string;
 
-  @IsIn(['HARARE_OFFICE', 'GARDEN_SITE'])
-  location: 'HARARE_OFFICE' | 'GARDEN_SITE';
+  @IsIn(['SITE', 'OFFICE', 'PASTORAL'])
+  staffType: 'SITE' | 'OFFICE' | 'PASTORAL';
 
   @IsInt()
   @Min(1)

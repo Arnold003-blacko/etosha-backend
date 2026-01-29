@@ -40,8 +40,8 @@ class StaffRegisterDto {
   @IsString()
   address: string;
 
-  @IsIn(['HARARE_OFFICE', 'GARDEN_SITE'])
-  location: 'HARARE_OFFICE' | 'GARDEN_SITE';
+  @IsIn(['SITE', 'OFFICE', 'PASTORAL'])
+  staffType: 'SITE' | 'OFFICE' | 'PASTORAL';
 
   @IsInt()
   @Min(1)
@@ -81,7 +81,7 @@ export class StaffAuthController {
       nationalId,
       dateOfBirth,
       address,
-      location,
+      staffType,
       level,
       password,
     } = body;
@@ -94,7 +94,7 @@ export class StaffAuthController {
       nationalId,
       dateOfBirth: new Date(dateOfBirth),
       address,
-      location,
+      staffType,
       level,
       password,
     });
@@ -127,7 +127,7 @@ export class StaffAuthController {
         lastName: true,
         email: true,
         level: true,
-        location: true,
+        staffType: true,
         isActive: true,
         isApproved: true,
         isSystemAdmin: true,
@@ -154,7 +154,7 @@ export class StaffAuthController {
         lastName: true,
         email: true,
         level: true,
-        location: true,
+        staffType: true,
         isActive: true,
         isApproved: true,
       },
@@ -179,7 +179,7 @@ export class StaffAuthController {
         lastName: true,
         email: true,
         level: true,
-        location: true,
+        staffType: true,
         isActive: true,
         isApproved: true,
       },

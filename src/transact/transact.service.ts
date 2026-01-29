@@ -10,20 +10,34 @@ import { PrismaService } from '../prisma/prisma.service';
 import { PaymentsService } from '../payments/payments.service';
 import { PurchasesService } from '../purchases/purchases.service';
 import { MembersService } from '../members/members.service';
+import { DeceasedService } from '../deceased/deceased.service';
 import { DashboardGateway } from '../dashboard/dashboard.gateway';
 import { LoggerService, LogCategory } from '../dashboard/logger.service';
 import { CashPaymentDto } from './dto/cash-payment.dto';
 import { CreateLegacyPlanDto } from './dto/legacy-plan.dto';
 import { StaffCreatePurchaseDto } from './dto/staff-create-purchase.dto';
-import { PurchaseStatus } from '@prisma/client';
+import { PurchaseStatus, PurchaseType, ItemCategory } from '@prisma/client';
+import { CreateDeceasedDto } from '../deceased/dto/create-deceased.dto';
+import { UpsertNextOfKinDto } from '../members/dto/upsert-next-of-kin.dto';
+import { DeceasedDetailsDto } from './dto/deceased-details.dto';
 
 @Injectable()
 export class TransactService {
+  // Temporary storage for deceased and next of kin details before payment
+  // Key: purchaseId, Value: { deceasedDetails, nextOfKinDetails }
+  // For immediate burials: both deceasedDetails and nextOfKinDetails are stored
+  // For future plans: only nextOfKinDetails stored (deceasedDetails will be provided when redeeming)
+  private pendingDetailsMap = new Map<string, {
+    deceasedDetails: DeceasedDetailsDto | null;
+    nextOfKinDetails: UpsertNextOfKinDto;
+  }>();
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly paymentsService: PaymentsService,
     private readonly purchasesService: PurchasesService,
     private readonly membersService: MembersService,
+    private readonly deceasedService: DeceasedService,
     @Inject(forwardRef(() => DashboardGateway))
     private readonly dashboardGateway: DashboardGateway,
     private readonly logger: LoggerService,
@@ -140,6 +154,15 @@ export class TransactService {
           address: true,
           city: true,
           createdAt: true,
+          nextOfKin: {
+            select: {
+              fullName: true,
+              relationship: true,
+              phone: true,
+              email: true,
+              address: true,
+            },
+          },
         },
       });
 
@@ -263,6 +286,56 @@ export class TransactService {
       );
 
       throw new BadRequestException('Failed to fetch member purchases');
+    }
+  }
+
+  /* =====================================================
+   * GET MEMBER NEXT OF KIN (WEB - STAFF)
+   * ===================================================== */
+  async getMemberNextOfKin(memberId: string, userId?: string) {
+    // Validate member exists
+    await this.getMemberById(memberId, userId);
+
+    try {
+      this.logger.info(
+        `[TRANSACT] Fetching next of kin for member: ${memberId}`,
+        LogCategory.SYSTEM,
+        {
+          eventType: 'transact_get_member_next_of_kin',
+          memberId,
+          userId,
+        },
+      );
+
+      const nextOfKin = await this.prisma.nextOfKin.findUnique({
+        where: { memberId },
+      });
+
+      this.logger.info(
+        `[TRANSACT] Next of kin fetched: ${nextOfKin ? 'found' : 'not found'}`,
+        LogCategory.SYSTEM,
+        {
+          eventType: 'transact_get_member_next_of_kin_success',
+          memberId,
+          hasNextOfKin: !!nextOfKin,
+          userId,
+        },
+      );
+
+      return nextOfKin;
+    } catch (error) {
+      this.logger.error(
+        `[TRANSACT] Failed to fetch next of kin: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        error instanceof Error ? error : new Error(String(error)),
+        LogCategory.SYSTEM,
+        {
+          eventType: 'transact_get_member_next_of_kin_error',
+          memberId,
+          userId,
+        },
+      );
+
+      throw new BadRequestException('Failed to fetch next of kin');
     }
   }
 
@@ -404,6 +477,19 @@ export class TransactService {
         },
         orderBy: { createdAt: 'desc' },
       });
+
+      // For immediate burials, create deceased and next of kin records after payment
+      if (
+        updatedPurchase?.status === PurchaseStatus.PAID &&
+        updatedPurchase?.purchaseType === PurchaseType.IMMEDIATE &&
+        updatedPurchase?.product?.category === ItemCategory.SERENITY_GROUND
+      ) {
+        await this.processPendingDetailsForPurchase(
+          dto.purchaseId,
+          dto.memberId,
+          staffUserId,
+        );
+      }
 
       const duration = Date.now() - startTime;
 
@@ -605,15 +691,44 @@ export class TransactService {
   /* =====================================================
    * INITIATE PURCHASE (WEB - STAFF)
    * Reuses PurchasesService.initiatePurchase so logic matches the app.
+   * For immediate burials, captures deceased and next of kin details before payment.
    * ===================================================== */
   async initiatePurchaseForMember(
     dto: StaffCreatePurchaseDto,
     staffUserId?: string,
   ) {
-    const { memberId, ...purchaseDto } = dto;
+    const { memberId, deceasedDetails, nextOfKinDetails, ...purchaseDto } = dto;
 
     // Validate member exists (and log via existing helper)
     await this.getMemberById(memberId, staffUserId);
+
+    // Validate that for immediate burials, deceased and next of kin details are provided
+    if (purchaseDto.purchaseType === PurchaseType.IMMEDIATE) {
+      // Check if product is a grave (SERENITY_GROUND category)
+      const product = await this.prisma.product.findUnique({
+        where: { id: purchaseDto.productId },
+        select: { category: true },
+      });
+
+      if (product?.category === ItemCategory.SERENITY_GROUND) {
+        if (!deceasedDetails) {
+          throw new BadRequestException(
+            'Deceased details are required for immediate burial purchases',
+          );
+        }
+        if (!nextOfKinDetails) {
+          throw new BadRequestException(
+            'Next of kin details are required for immediate burial purchases',
+          );
+        }
+      }
+    }
+
+    // For future plans, next of kin details are also required (like the app)
+    if (purchaseDto.purchaseType === PurchaseType.FUTURE && nextOfKinDetails) {
+      // Store next of kin details to be saved after purchase creation
+      // We'll save them after the purchase is created
+    }
 
     try {
       this.logger.info(
@@ -625,6 +740,8 @@ export class TransactService {
           productId: purchaseDto.productId,
           purchaseType: purchaseDto.purchaseType,
           yearPlanId: purchaseDto.yearPlanId,
+          hasDeceasedDetails: !!deceasedDetails,
+          hasNextOfKinDetails: !!nextOfKinDetails,
           staffUserId,
         },
       );
@@ -633,6 +750,53 @@ export class TransactService {
         purchaseDto,
         memberId,
       );
+
+      // Store deceased and next of kin details temporarily for immediate burials
+      if (
+        purchaseDto.purchaseType === PurchaseType.IMMEDIATE &&
+        deceasedDetails &&
+        nextOfKinDetails
+      ) {
+        this.pendingDetailsMap.set(purchase.id, {
+          deceasedDetails,
+          nextOfKinDetails,
+        });
+
+        this.logger.info(
+          `[TRANSACT] Stored pending deceased/next of kin details for purchase: ${purchase.id}`,
+          LogCategory.SYSTEM,
+          {
+            eventType: 'transact_pending_details_stored',
+            purchaseId: purchase.id,
+            memberId,
+            staffUserId,
+          },
+        );
+      }
+
+      // For future plans, store next of kin details temporarily
+      // They will be saved as BurialNextOfKin when deceased is created (on redemption)
+      if (
+        purchaseDto.purchaseType === PurchaseType.FUTURE &&
+        nextOfKinDetails
+      ) {
+        // Store temporarily for when they redeem later
+        this.pendingDetailsMap.set(purchase.id, {
+          deceasedDetails: null as any, // Will be provided when redeeming
+          nextOfKinDetails,
+        });
+
+        this.logger.info(
+          `[TRANSACT] Stored next of kin details for future plan (will be saved when deceased is created): ${purchase.id}`,
+          LogCategory.SYSTEM,
+          {
+            eventType: 'transact_next_of_kin_stored_future',
+            purchaseId: purchase.id,
+            memberId,
+            staffUserId,
+          },
+        );
+      }
 
       return purchase;
     } catch (error) {
@@ -886,6 +1050,104 @@ export class TransactService {
       );
 
       throw new BadRequestException('Failed to initiate EcoCash payment');
+    }
+  }
+
+  /* =====================================================
+   * GET STORED NEXT OF KIN FOR PURCHASE
+   * Returns stored next of kin details if available (for future plan redemptions)
+   * ===================================================== */
+  getStoredNextOfKinForPurchase(purchaseId: string): UpsertNextOfKinDto | null {
+    const pendingDetails = this.pendingDetailsMap.get(purchaseId);
+    return pendingDetails?.nextOfKinDetails || null;
+  }
+
+  /* =====================================================
+   * PROCESS PENDING DETAILS AFTER PAYMENT
+   * Creates deceased and next of kin records for immediate burials
+   * after payment succeeds
+   * Can be called from payment completion handlers
+   * ===================================================== */
+  async processPendingDetailsForPurchase(
+    purchaseId: string,
+    memberId: string,
+    staffUserId?: string,
+  ) {
+    const pendingDetails = this.pendingDetailsMap.get(purchaseId);
+
+    if (!pendingDetails || !pendingDetails.deceasedDetails) {
+      // No pending details or no deceased details (future plan), skip
+      return;
+    }
+
+    try {
+      this.logger.info(
+        `[TRANSACT] Processing pending deceased/next of kin details for purchase: ${purchaseId}`,
+        LogCategory.SYSTEM,
+        {
+          eventType: 'transact_process_pending_details',
+          purchaseId,
+          memberId,
+          staffUserId,
+        },
+      );
+
+      const { deceasedDetails, nextOfKinDetails } = pendingDetails;
+
+      // Get purchase to check if buyer is the next of kin
+      const purchase = await this.prisma.purchase.findUnique({
+        where: { id: purchaseId },
+        include: { member: true },
+      });
+
+      const isBuyerNextOfKin = purchase?.member && 
+        nextOfKinDetails.fullName.toLowerCase().includes(purchase.member.firstName.toLowerCase()) &&
+        nextOfKinDetails.fullName.toLowerCase().includes(purchase.member.lastName.toLowerCase());
+
+      // Create deceased record with next of kin (this also redeems the purchase)
+      // Next of kin is tied to deceased via BurialNextOfKin, not to member
+      await this.deceasedService.createAndRedeem(
+        {
+          ...deceasedDetails,
+          purchaseId,
+          nextOfKin: {
+            ...nextOfKinDetails,
+            isBuyer: isBuyerNextOfKin || false,
+          },
+        } as CreateDeceasedDto,
+        memberId,
+      );
+
+      // Remove from pending map
+      this.pendingDetailsMap.delete(purchaseId);
+
+      this.logger.info(
+        `[TRANSACT] Successfully created deceased and next of kin records for purchase: ${purchaseId}`,
+        LogCategory.SYSTEM,
+        {
+          eventType: 'transact_process_pending_details_success',
+          purchaseId,
+          memberId,
+          staffUserId,
+        },
+      );
+    } catch (error) {
+      this.logger.error(
+        `[TRANSACT] Failed to process pending details: ${
+          error instanceof Error ? error.message : 'Unknown error'
+        }`,
+        error instanceof Error ? error : new Error(String(error)),
+        LogCategory.SYSTEM,
+        {
+          eventType: 'transact_process_pending_details_error',
+          purchaseId,
+          memberId,
+          staffUserId,
+        },
+      );
+
+      // Don't throw - payment already succeeded, details can be added manually later
+      // But log the error for staff to handle
     }
   }
 }

@@ -5,6 +5,7 @@ import { PrismaModule } from '../prisma/prisma.module';
 import { PaymentsModule } from '../payments/payments.module';
 import { PurchasesModule } from '../purchases/purchases.module';
 import { MembersModule } from '../members/members.module';
+import { DeceasedModule } from '../deceased/deceased.module';
 import { DashboardModule } from '../dashboard/dashboard.module';
 
 @Module({
@@ -13,6 +14,7 @@ import { DashboardModule } from '../dashboard/dashboard.module';
     PaymentsModule,
     PurchasesModule,
     MembersModule,
+    DeceasedModule,
     forwardRef(() => DashboardModule),
   ],
   controllers: [TransactController],

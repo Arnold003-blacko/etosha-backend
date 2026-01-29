@@ -25,7 +25,7 @@ export class StaffJwtStrategy extends PassportStrategy(Strategy, 'staff-jwt') {
       email: staff.email,
       level: staff.level,
       isSystemAdmin: staff.isSystemAdmin,
-      location: staff.location,
+      staffType: staff.staffType,
     };
   }
 }

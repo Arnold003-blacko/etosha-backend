@@ -29,8 +29,8 @@ export class UpdateStaffDto {
   address?: string;
 
   @IsOptional()
-  @IsIn(['HARARE_OFFICE', 'GARDEN_SITE'])
-  location?: 'HARARE_OFFICE' | 'GARDEN_SITE';
+  @IsIn(['SITE', 'OFFICE', 'PASTORAL'])
+  staffType?: 'SITE' | 'OFFICE' | 'PASTORAL';
 
   @IsOptional()
   @IsInt()

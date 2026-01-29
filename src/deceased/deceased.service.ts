@@ -56,9 +56,17 @@ export class DeceasedService {
         );
       }
 
-      // 4️⃣ Idempotency (safe retry)
+      // 4️⃣ Check if already redeemed (prevent double redemption)
       if (purchase.deceased) {
-        return purchase.deceased;
+        throw new BadRequestException(
+          'This purchase has already been redeemed. Each purchase can only be redeemed once.'
+        );
+      }
+
+      if (purchase.redeemedAt) {
+        throw new BadRequestException(
+          'This purchase has already been redeemed. Each purchase can only be redeemed once.'
+        );
       }
 
       // 5️⃣ Create deceased
@@ -79,7 +87,22 @@ export class DeceasedService {
         },
       });
 
-      // 6️⃣ Redeem purchase (ATOMIC)
+      // 6️⃣ Create BurialNextOfKin - tied to deceased, not member (if provided)
+      if (dto.nextOfKin) {
+        await tx.burialNextOfKin.create({
+          data: {
+            deceasedId: deceased.id,
+            fullName: dto.nextOfKin.fullName,
+            relationship: dto.nextOfKin.relationship,
+            phone: dto.nextOfKin.phone,
+            email: dto.nextOfKin.email || null,
+            address: dto.nextOfKin.address,
+            isBuyer: dto.nextOfKin.isBuyer || false,
+          },
+        });
+      }
+
+      // 7️⃣ Redeem purchase (ATOMIC)
       await tx.purchase.update({
         where: { id: purchase.id },
         data: {
@@ -92,6 +115,124 @@ export class DeceasedService {
       this.dashboardGateway.broadcastDashboardUpdate();
 
       return deceased;
+    });
+  }
+
+  /**
+   * Get all deceased records for a member (via their purchases)
+   */
+  async getDeceasedForMember(memberId: string) {
+    const purchases = await this.prisma.purchase.findMany({
+      where: {
+        memberId,
+        deceased: { isNot: null },
+      },
+      include: {
+        deceased: {
+          include: {
+            burialNextOfKin: true,
+          },
+        },
+        product: {
+          select: {
+            title: true,
+            category: true,
+          },
+        },
+      },
+      orderBy: {
+        createdAt: 'desc',
+      },
+    });
+
+    return purchases
+      .filter((p) => p.deceased)
+      .map((p) => ({
+        ...p.deceased,
+        purchase: {
+          id: p.id,
+          product: p.product,
+          purchaseType: p.purchaseType,
+          createdAt: p.createdAt,
+        },
+        nextOfKin: p.deceased?.burialNextOfKin || null,
+      }));
+  }
+
+  /**
+   * Get next of kin for a deceased person
+   */
+  async getNextOfKinForDeceased(deceasedId: string, memberId: string) {
+    const deceased = await this.prisma.deceased.findUnique({
+      where: { id: deceasedId },
+      include: {
+        purchase: {
+          select: { memberId: true },
+        },
+        burialNextOfKin: true,
+      },
+    });
+
+    if (!deceased) {
+      throw new NotFoundException('Deceased not found');
+    }
+
+    if (deceased.purchase.memberId !== memberId) {
+      throw new ForbiddenException('Not your deceased record');
+    }
+
+    return deceased.burialNextOfKin;
+  }
+
+  /**
+   * Update next of kin for a deceased person
+   */
+  async updateNextOfKinForDeceased(
+    deceasedId: string,
+    memberId: string,
+    dto: {
+      fullName: string;
+      relationship: string;
+      phone: string;
+      email?: string;
+      address: string;
+    },
+  ) {
+    const deceased = await this.prisma.deceased.findUnique({
+      where: { id: deceasedId },
+      include: {
+        purchase: {
+          select: { memberId: true },
+        },
+      },
+    });
+
+    if (!deceased) {
+      throw new NotFoundException('Deceased not found');
+    }
+
+    if (deceased.purchase.memberId !== memberId) {
+      throw new ForbiddenException('Not your deceased record');
+    }
+
+    return this.prisma.burialNextOfKin.upsert({
+      where: { deceasedId },
+      update: {
+        fullName: dto.fullName,
+        relationship: dto.relationship,
+        phone: dto.phone,
+        email: dto.email || null,
+        address: dto.address,
+      },
+      create: {
+        deceasedId,
+        fullName: dto.fullName,
+        relationship: dto.relationship,
+        phone: dto.phone,
+        email: dto.email || null,
+        address: dto.address,
+        isBuyer: false,
+      },
     });
   }
 }

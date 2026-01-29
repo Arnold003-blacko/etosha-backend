@@ -4,7 +4,33 @@ import {
   IsUUID,
   IsOptional,
   IsDateString,
+  IsEmail,
+  IsBoolean,
+  ValidateNested,
 } from 'class-validator';
+import { Type } from 'class-transformer';
+
+export class NextOfKinDto {
+  @IsString()
+  fullName: string;
+
+  @IsString()
+  relationship: string;
+
+  @IsString()
+  phone: string;
+
+  @IsOptional()
+  @IsEmail()
+  email?: string;
+
+  @IsString()
+  address: string;
+
+  @IsOptional()
+  @IsBoolean()
+  isBuyer?: boolean; // Whether the purchase buyer is the next of kin
+}
 
 export class CreateDeceasedDto {
   @IsUUID()
@@ -39,4 +65,11 @@ export class CreateDeceasedDto {
   @IsOptional()
   @IsDateString()
   expectedBurial?: string;
+
+  // Next of kin details - tied to deceased, not member
+  // Optional for future plan redemptions (can be added later)
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => NextOfKinDto)
+  nextOfKin?: NextOfKinDto;
 }

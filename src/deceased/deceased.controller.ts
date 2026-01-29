@@ -3,6 +3,9 @@ import {
   Body,
   Controller,
   Post,
+  Get,
+  Patch,
+  Param,
   Req,
   UseGuards,
 } from '@nestjs/common';
@@ -25,5 +28,46 @@ export class DeceasedController {
   @Post()
   async create(@Body() dto: CreateDeceasedDto, @Req() req) {
     return this.service.createAndRedeem(dto, req.user.id);
+  }
+
+  /**
+   * GET /deceased/my
+   * Get all deceased records for the authenticated member
+   */
+  @Get('my')
+  async getMyDeceased(@Req() req) {
+    return this.service.getDeceasedForMember(req.user.id);
+  }
+
+  /**
+   * GET /deceased/:deceasedId/next-of-kin
+   * Get next of kin for a specific deceased person
+   */
+  @Get(':deceasedId/next-of-kin')
+  async getNextOfKin(@Param('deceasedId') deceasedId: string, @Req() req) {
+    return this.service.getNextOfKinForDeceased(deceasedId, req.user.id);
+  }
+
+  /**
+   * PATCH /deceased/:deceasedId/next-of-kin
+   * Update next of kin for a specific deceased person
+   */
+  @Patch(':deceasedId/next-of-kin')
+  async updateNextOfKin(
+    @Param('deceasedId') deceasedId: string,
+    @Body() dto: {
+      fullName: string;
+      relationship: string;
+      phone: string;
+      email?: string;
+      address: string;
+    },
+    @Req() req,
+  ) {
+    return this.service.updateNextOfKinForDeceased(
+      deceasedId,
+      req.user.id,
+      dto,
+    );
   }
 }

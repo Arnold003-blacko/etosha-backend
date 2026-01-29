@@ -29,7 +29,7 @@ export class StaffAuthService {
     nationalId: string;
     dateOfBirth: Date;
     address: string;
-    location: string;
+    staffType: string;
     level: number;
     password: string;
   }) {
@@ -41,7 +41,7 @@ export class StaffAuthService {
       nationalId,
       dateOfBirth,
       address,
-      location,
+      staffType,
       level,
       password,
     } = input;
@@ -65,7 +65,7 @@ export class StaffAuthService {
         nationalId,
         dateOfBirth,
         address,
-        location: location as any,
+        staffType: staffType as any,
         level,
         password: hashedPassword,
         // isApproved stays false until admin approves
@@ -76,7 +76,7 @@ export class StaffAuthService {
         lastName: true,
         email: true,
         level: true,
-        location: true,
+        staffType: true,
         isApproved: true,
         isActive: true,
       },
@@ -131,7 +131,7 @@ export class StaffAuthService {
         staffId: staff.id,
         staffEmail: staff.email,
         level: staff.level,
-        location: staff.location,
+        staffType: staff.staffType,
       },
     );
 
@@ -143,7 +143,7 @@ export class StaffAuthService {
         lastName: staff.lastName,
         email: staff.email,
         level: staff.level,
-        location: staff.location,
+        staffType: staff.staffType,
         isSystemAdmin: staff.isSystemAdmin,
       },
     };

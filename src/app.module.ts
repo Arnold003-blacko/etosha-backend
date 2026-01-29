@@ -22,6 +22,7 @@ import { StaffModule } from './staff/staff.module';
 import { ClientsModule } from './clients/clients.module';
 import { BurialsModule } from './burials/burials.module';
 import { CommissionsModule } from './commissions/commissions.module';
+import { SmsModule } from './sms/sms.module';
 
 @Module({
   controllers: [AppController],
@@ -54,6 +55,7 @@ import { CommissionsModule } from './commissions/commissions.module';
     TransactModule,
     BurialsModule,
     CommissionsModule,
+    SmsModule,
   ],
 })
 export class AppModule {}
