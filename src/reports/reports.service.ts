@@ -63,7 +63,6 @@ export class ReportsService {
           take: 1,
           },
         },
-      },
       orderBy: { balance: 'desc' },
     });
 
@@ -214,7 +213,7 @@ export class ReportsService {
       });
     });
 
-    ['totalAmount', 'monthlyInstallment'].forEach((col) => {
+    (['totalAmount', 'monthlyInstallment'] as const).forEach((col) => {
       worksheet.getColumn(col).numFmt = '$#,##0.00';
     });
 
@@ -353,7 +352,8 @@ export class ReportsService {
       });
     });
 
-    ['totalAmount', 'paidAmount', 'balance', 'monthlyInstallment'].forEach((col) => {
+    // Must be an array [...] not (...); comma operator causes TS2695
+    (['totalAmount', 'paidAmount', 'balance', 'monthlyInstallment'] as const).forEach((col) => {
       worksheet.getColumn(col).numFmt = '$#,##0.00';
     });
 
@@ -579,7 +579,7 @@ export class ReportsService {
       fgColor: { argb: 'FFFFC000' },
     };
 
-    ['totalRevenue', 'averageAmount'].forEach((col) => {
+    (['totalRevenue', 'averageAmount'] as const).forEach((col) => {
       worksheet.getColumn(col).numFmt = '$#,##0.00';
     });
 
