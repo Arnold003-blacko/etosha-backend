@@ -28,12 +28,19 @@ export class DeceasedService {
     dto: CreateDeceasedDto,
     memberId: string,
   ) {
+    console.log(
+      `[DECEASED] 🔍 createAndRedeem called: purchaseId=${dto.purchaseId}, memberId=${memberId}`,
+    );
+    console.log(`[DECEASED] DTO received:`, JSON.stringify(dto, null, 2));
+    
     // 🔒 Guard: Validate UUID before database query
     if (!dto.purchaseId || typeof dto.purchaseId !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(dto.purchaseId)) {
+      console.error(`[DECEASED] ❌ Invalid Purchase ID format: ${dto.purchaseId}`);
       throw new BadRequestException('Invalid Purchase ID: must be a valid UUID format');
     }
     
-    return this.prisma.$transaction(async (tx) => {
+    try {
+      const result = await this.prisma.$transaction(async (tx) => {
       // 1️⃣ Load purchase
       const purchase = await tx.purchase.findUnique({
         where: { id: dto.purchaseId },
@@ -119,8 +126,37 @@ export class DeceasedService {
       // Emit real-time update (after transaction completes)
       this.dashboardGateway.broadcastDashboardUpdate();
 
-      return deceased;
-    });
+        console.log(
+          `[DECEASED] ✅ Successfully created deceased ${deceased.id} and next of kin for purchase ${dto.purchaseId}`,
+        );
+        return deceased;
+      });
+      
+      console.log(`[DECEASED] Transaction completed successfully`);
+      return result;
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      const errorStack = error instanceof Error ? error.stack : String(error);
+      
+      console.error(
+        `[DECEASED] ❌ CRITICAL ERROR in createAndRedeem for purchase ${dto.purchaseId}:`,
+        errorMessage,
+      );
+      console.error(`[DECEASED] Error stack:`, errorStack);
+      console.error(`[DECEASED] DTO that failed:`, JSON.stringify(dto, null, 2));
+      
+      // Re-throw with more context
+      if (error instanceof BadRequestException || 
+          error instanceof NotFoundException || 
+          error instanceof ForbiddenException) {
+        throw error; // Re-throw validation/authorization errors as-is
+      }
+      
+      // Wrap unexpected errors
+      throw new BadRequestException(
+        `Failed to create deceased and next of kin records: ${errorMessage}`,
+      );
+    }
   }
 
   /**

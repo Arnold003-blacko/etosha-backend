@@ -23,6 +23,7 @@ import { ClientsModule } from './clients/clients.module';
 import { BurialsModule } from './burials/burials.module';
 import { CommissionsModule } from './commissions/commissions.module';
 import { SmsModule } from './sms/sms.module';
+import { ReportsModule } from './reports/reports.module';
 
 @Module({
   controllers: [AppController],
@@ -56,6 +57,7 @@ import { SmsModule } from './sms/sms.module';
     BurialsModule,
     CommissionsModule,
     SmsModule,
+    ReportsModule,
   ],
 })
 export class AppModule {}

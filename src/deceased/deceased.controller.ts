@@ -27,7 +27,14 @@ export class DeceasedController {
    */
   @Post()
   async create(@Body() dto: CreateDeceasedDto, @Req() req) {
-    return this.service.createAndRedeem(dto, req.user.id);
+    try {
+      console.log(`[DECEASED CONTROLLER] POST /deceased called by user ${req.user.id}`);
+      console.log(`[DECEASED CONTROLLER] DTO received:`, JSON.stringify(dto, null, 2));
+      return await this.service.createAndRedeem(dto, req.user.id);
+    } catch (error) {
+      console.error(`[DECEASED CONTROLLER] Error in POST /deceased:`, error);
+      throw error; // Re-throw to let NestJS handle it properly
+    }
   }
 
   /**
