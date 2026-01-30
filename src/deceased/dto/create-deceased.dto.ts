@@ -66,10 +66,8 @@ export class CreateDeceasedDto {
   @IsDateString()
   expectedBurial?: string;
 
-  // Next of kin details - tied to deceased, not member
-  // Optional for future plan redemptions (can be added later)
-  @IsOptional()
+  // Next of kin details - required: you cannot save a deceased without their next of kin
   @ValidateNested()
   @Type(() => NextOfKinDto)
-  nextOfKin?: NextOfKinDto;
+  nextOfKin: NextOfKinDto;
 }

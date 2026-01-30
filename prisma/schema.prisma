@@ -200,7 +200,6 @@ model Member {
 
   purchases Purchase[]
   payments  Payment[]
-  nextOfKin NextOfKin?
 
   @@index([email])
 }
@@ -325,24 +324,6 @@ model Deceased {
   @@index([status])
   @@index([burialDate])
   @@index([expectedBurial])
-}
-
-model NextOfKin {
-  id       String @id @default(uuid()) @db.Uuid
-  memberId String @unique
-
-  fullName     String
-  relationship String
-  phone        String
-  email        String?
-  address      String
-
-  member Member @relation(fields: [memberId], references: [id])
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  @@index([memberId])
 }
 
 model YearPlan {
@@ -475,7 +456,7 @@ model AssignmentRequest {
 
 model BurialNextOfKin {
   id         String @id @default(uuid()) @db.Uuid
-  deceasedId String @unique @db.Uuid
+  deceasedId String @unique @db.Uuid // 1-to-1: One deceased has exactly one next of kin
 
   fullName     String
   relationship String
@@ -488,7 +469,7 @@ model BurialNextOfKin {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  deceased Deceased @relation(fields: [deceasedId], references: [id])
+  deceased Deceased @relation(fields: [deceasedId], references: [id]) // 1-to-1 relationship only
 
   @@index([deceasedId])
 }

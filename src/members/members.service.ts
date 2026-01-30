@@ -8,7 +8,6 @@ import {
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateMemberDto } from './dto/create-member.dto';
 import { LoginMemberDto } from './dto/login-member.dto';
-import { UpsertNextOfKinDto } from './dto/upsert-next-of-kin.dto';
 import * as bcrypt from 'bcrypt';
 import { DashboardGateway } from '../dashboard/dashboard.gateway';
 import * as jwt from 'jsonwebtoken';
@@ -188,37 +187,4 @@ export class MembersService {
     return this.sanitize(member);
   }
 
-  /* =========================
-     NEXT OF KIN (MEMBER-SCOPED)
-  ========================= */
-
-  async getMyNextOfKin(memberId: string) {
-    return this.prisma.nextOfKin.findUnique({
-      where: { memberId },
-    });
-  }
-
-  async upsertNextOfKin(
-    memberId: string,
-    dto: UpsertNextOfKinDto,
-  ) {
-    return this.prisma.nextOfKin.upsert({
-      where: { memberId },
-      update: {
-        fullName: dto.fullName,
-        relationship: dto.relationship,
-        phone: dto.phone,
-        email: dto.email ?? null,
-        address: dto.address,
-      },
-      create: {
-        memberId,
-        fullName: dto.fullName,
-        relationship: dto.relationship,
-        phone: dto.phone,
-        email: dto.email ?? null,
-        address: dto.address,
-      },
-    });
-  }
 }

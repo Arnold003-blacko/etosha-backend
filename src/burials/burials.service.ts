@@ -89,7 +89,7 @@ export class BurialsService {
       // Set purchaseLinkedAt if purchase is provided
       const purchaseLinkedAt = dto.purchaseId ? new Date() : null;
 
-      // Create deceased record
+      // Create deceased record (always followed by BurialNextOfKin - 1 deceased : 1 next of kin)
       const deceased = await tx.deceased.create({
         data: {
           purchaseId: dto.purchaseId || null,
@@ -113,7 +113,7 @@ export class BurialsService {
         },
       });
 
-      // Create next of kin
+      // Create BurialNextOfKin immediately after deceased (required: every deceased has one next of kin)
       await tx.burialNextOfKin.create({
         data: {
           deceasedId: deceased.id,
@@ -899,91 +899,138 @@ export class BurialsService {
    * Update deceased record
    */
   async updateDeceased(id: string, dto: UpdateDeceasedDto) {
-    const deceased = await this.prisma.deceased.findUnique({
-      where: { id },
-      include: {
-        nextOfKin: true,
-        purchase: true,
-      },
-    });
+    return this.prisma.$transaction(async (tx) => {
+      const deceased = await tx.deceased.findUnique({
+        where: { id },
+        include: {
+          nextOfKin: true,
+          purchase: true,
+        },
+      });
 
-    if (!deceased) {
-      throw new NotFoundException('Deceased record not found');
-    }
+      if (!deceased) {
+        throw new NotFoundException('Deceased record not found');
+      }
 
-    const updateData: any = {};
+      const updateData: any = {};
 
-    if (dto.fullName !== undefined) updateData.fullName = dto.fullName;
-    if (dto.dateOfBirth !== undefined)
-      updateData.dateOfBirth = dto.dateOfBirth ? new Date(dto.dateOfBirth) : null;
-    if (dto.gender !== undefined) updateData.gender = dto.gender;
-    if (dto.address !== undefined) updateData.address = dto.address;
-    if (dto.relationship !== undefined) updateData.relationship = dto.relationship;
-    if (dto.causeOfDeath !== undefined) updateData.causeOfDeath = dto.causeOfDeath;
-    if (dto.funeralParlor !== undefined) updateData.funeralParlor = dto.funeralParlor;
-    if (dto.dateOfDeath !== undefined)
-      updateData.dateOfDeath = dto.dateOfDeath ? new Date(dto.dateOfDeath) : null;
-    if (dto.expectedBurial !== undefined)
-      updateData.expectedBurial = dto.expectedBurial
-        ? new Date(dto.expectedBurial)
-        : null;
-    if (dto.burialDate !== undefined)
-      updateData.burialDate = dto.burialDate ? new Date(dto.burialDate) : null;
-    if (dto.notes !== undefined) updateData.notes = dto.notes;
-    if (dto.status !== undefined) updateData.status = dto.status;
-    if (dto.purchaseId !== undefined) updateData.purchaseId = dto.purchaseId || null;
+      if (dto.fullName !== undefined) updateData.fullName = dto.fullName;
+      if (dto.dateOfBirth !== undefined)
+        updateData.dateOfBirth = dto.dateOfBirth ? new Date(dto.dateOfBirth) : null;
+      if (dto.gender !== undefined) updateData.gender = dto.gender;
+      if (dto.address !== undefined) updateData.address = dto.address;
+      if (dto.relationship !== undefined) updateData.relationship = dto.relationship;
+      if (dto.causeOfDeath !== undefined) updateData.causeOfDeath = dto.causeOfDeath;
+      if (dto.funeralParlor !== undefined) updateData.funeralParlor = dto.funeralParlor;
+      if (dto.dateOfDeath !== undefined)
+        updateData.dateOfDeath = dto.dateOfDeath ? new Date(dto.dateOfDeath) : null;
+      if (dto.expectedBurial !== undefined)
+        updateData.expectedBurial = dto.expectedBurial
+          ? new Date(dto.expectedBurial)
+          : null;
+      if (dto.burialDate !== undefined)
+        updateData.burialDate = dto.burialDate ? new Date(dto.burialDate) : null;
+      if (dto.notes !== undefined) updateData.notes = dto.notes;
+      if (dto.status !== undefined) updateData.status = dto.status;
+      if (dto.purchaseId !== undefined) updateData.purchaseId = dto.purchaseId || null;
 
-    // Update purchaseLinkedAt if purchaseId is being set
-    if (dto.purchaseId !== undefined && dto.purchaseId && !deceased.purchaseLinkedAt) {
-      updateData.purchaseLinkedAt = new Date();
-    }
+      // Update purchaseLinkedAt if purchaseId is being set
+      if (dto.purchaseId !== undefined && dto.purchaseId && !deceased.purchaseLinkedAt) {
+        updateData.purchaseLinkedAt = new Date();
+      }
 
-    // Update deceasedCapturedAt if all required fields are now present
-    const hasAllRequiredFields =
-      (updateData.fullName || deceased.fullName) &&
-      (updateData.expectedBurial !== undefined
-        ? updateData.expectedBurial
-        : deceased.expectedBurial) &&
-      deceased.nextOfKin &&
-      deceased.nextOfKin.fullName &&
-      deceased.nextOfKin.phone &&
-      deceased.nextOfKin.relationship;
+      // Update next of kin if provided
+      if (dto.nextOfKin) {
+        const nextOfKinUpdateData: any = {};
+        
+        if (dto.nextOfKin.fullName !== undefined) nextOfKinUpdateData.fullName = dto.nextOfKin.fullName;
+        if (dto.nextOfKin.relationship !== undefined) nextOfKinUpdateData.relationship = dto.nextOfKin.relationship;
+        if (dto.nextOfKin.phone !== undefined) nextOfKinUpdateData.phone = dto.nextOfKin.phone;
+        if (dto.nextOfKin.email !== undefined) nextOfKinUpdateData.email = dto.nextOfKin.email || null;
+        if (dto.nextOfKin.address !== undefined) nextOfKinUpdateData.address = dto.nextOfKin.address;
+        if (dto.nextOfKin.isBuyer !== undefined) nextOfKinUpdateData.isBuyer = dto.nextOfKin.isBuyer;
 
-    if (hasAllRequiredFields && !deceased.deceasedCapturedAt) {
-      updateData.deceasedCapturedAt = new Date();
-    }
+        // Upsert next of kin (create if doesn't exist, update if exists) - every deceased must have one
+        if (deceased.nextOfKin) {
+          // Update existing next of kin
+          await tx.burialNextOfKin.update({
+            where: { deceasedId: id },
+            data: nextOfKinUpdateData,
+          });
+        } else {
+          // Create BurialNextOfKin when updating deceased and they had none (required: every deceased has one next of kin)
+          await tx.burialNextOfKin.create({
+            data: {
+              deceasedId: id,
+              fullName: dto.nextOfKin.fullName || '',
+              relationship: dto.nextOfKin.relationship || '',
+              phone: dto.nextOfKin.phone || '',
+              email: dto.nextOfKin.email || null,
+              address: dto.nextOfKin.address || '',
+              isBuyer: dto.nextOfKin.isBuyer || false,
+            },
+          });
+        }
+      }
 
-    const updated = await this.prisma.deceased.update({
-      where: { id },
-      data: updateData,
-      include: {
-        purchase: {
-          include: {
-            member: true,
-            product: {
-              select: {
-                id: true,
-                title: true,
-                pricingSection: true,
-                amount: true,
+      // Update deceasedCapturedAt if all required fields are now present
+      // Need to check next of kin after potential update - reload it if it was updated
+      let nextOfKinForCheck = deceased.nextOfKin;
+      if (dto.nextOfKin) {
+        // Reload next of kin to get updated values
+        nextOfKinForCheck = await tx.burialNextOfKin.findUnique({
+          where: { deceasedId: id },
+        });
+      }
+
+      const hasAllRequiredFields =
+        (updateData.fullName || deceased.fullName) &&
+        (updateData.expectedBurial !== undefined
+          ? updateData.expectedBurial
+          : deceased.expectedBurial) &&
+        nextOfKinForCheck &&
+        nextOfKinForCheck.fullName &&
+        nextOfKinForCheck.phone &&
+        nextOfKinForCheck.relationship;
+
+      if (hasAllRequiredFields && !deceased.deceasedCapturedAt) {
+        updateData.deceasedCapturedAt = new Date();
+      }
+
+      const updated = await tx.deceased.update({
+        where: { id },
+        data: updateData,
+        include: {
+          purchase: {
+            include: {
+              member: true,
+              product: {
+                select: {
+                  id: true,
+                  title: true,
+                  pricingSection: true,
+                  amount: true,
+                },
               },
             },
           },
-        },
-        waiver: true,
-        graveSlot: {
-          include: {
-            grave: true,
+          waiver: true,
+          graveSlot: {
+            include: {
+              grave: true,
+            },
           },
+          nextOfKin: true,
         },
-        nextOfKin: true,
-      },
+      });
+
+      // Check if SMS should be triggered (outside transaction to avoid long-running transaction)
+      setImmediate(async () => {
+        await this.maybeTriggerBurialSms(id);
+      });
+
+      return updated;
     });
-
-    // Check if SMS should be triggered
-    await this.maybeTriggerBurialSms(id);
-
-    return updated;
   }
 
   /**

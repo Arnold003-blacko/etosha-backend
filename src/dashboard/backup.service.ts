@@ -131,7 +131,6 @@ export class BackupService {
       const purchases = await this.prisma.purchase.findMany();
       const payments = await this.prisma.payment.findMany();
       const deceased = await this.prisma.deceased.findMany();
-      const nextOfKin = await this.prisma.nextOfKin.findMany();
       const yearPlans = await this.prisma.yearPlan.findMany();
 
       // Generate SQL INSERT statements

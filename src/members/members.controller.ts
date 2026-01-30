@@ -6,12 +6,10 @@ import {
   Get,
   Request,
   NotFoundException,
-  Patch,
 } from '@nestjs/common';
 import { MembersService } from './members.service';
 import { CreateMemberDto } from './dto/create-member.dto';
 import { LoginMemberDto } from './dto/login-member.dto';
-import { UpsertNextOfKinDto } from './dto/upsert-next-of-kin.dto';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 
 @Controller('members')
@@ -60,32 +58,4 @@ export class MembersController {
     throw new NotFoundException('User not found');
   }
 
-  /* =========================
-     NEXT OF KIN (MEMBER-SCOPED)
-  ========================= */
-
-  /**
-   * GET /members/me/next-of-kin
-   */
-  @UseGuards(JwtAuthGuard)
-  @Get('me/next-of-kin')
-  getMyNextOfKin(@Request() req: any) {
-    return this.membersService.getMyNextOfKin(req.user.id);
-  }
-
-  /**
-   * PATCH /members/me/next-of-kin
-   * Create or update next of kin
-   */
-  @UseGuards(JwtAuthGuard)
-  @Patch('me/next-of-kin')
-  upsertMyNextOfKin(
-    @Request() req: any,
-    @Body() dto: UpsertNextOfKinDto,
-  ) {
-    return this.membersService.upsertNextOfKin(
-      req.user.id,
-      dto,
-    );
-  }
 }

@@ -277,6 +277,14 @@ export class PurchasesService {
     }
 
     return this.prisma.$transaction(async (tx) => {
+      // Next of kin is required: you cannot save a deceased without their next of kin (BurialNextOfKin only)
+      const nextOfKinData = data.nextOfKin;
+      if (!nextOfKinData) {
+        throw new BadRequestException(
+          'Next of kin details are required. You cannot save a deceased without their next of kin.',
+        );
+      }
+
       // Create deceased
       const deceased = await tx.deceased.create({
         data: {
@@ -295,46 +303,22 @@ export class PurchasesService {
         },
       });
 
-      // Create BurialNextOfKin - tied to deceased, not member
-      // Use provided next of kin or try to get from member's NextOfKin as fallback
-      let nextOfKinData = data.nextOfKin;
-      
-      if (!nextOfKinData) {
-        // Try to get from member's NextOfKin as fallback
-        const memberNextOfKin = await tx.nextOfKin.findUnique({
-          where: { memberId: purchase.memberId },
-        });
-        
-        if (memberNextOfKin) {
-          nextOfKinData = {
-            fullName: memberNextOfKin.fullName,
-            relationship: memberNextOfKin.relationship,
-            phone: memberNextOfKin.phone,
-            email: memberNextOfKin.email || undefined,
-            address: memberNextOfKin.address,
-            isBuyer: false,
-          };
-        }
-      }
+      // Create BurialNextOfKin immediately after deceased (required: every deceased has one next of kin)
+      const isBuyer = purchase.member &&
+        nextOfKinData.fullName.toLowerCase().includes(purchase.member.firstName.toLowerCase()) &&
+        nextOfKinData.fullName.toLowerCase().includes(purchase.member.lastName.toLowerCase());
 
-      if (nextOfKinData) {
-        // Check if buyer is the next of kin
-        const isBuyer = purchase.member && 
-          nextOfKinData.fullName.toLowerCase().includes(purchase.member.firstName.toLowerCase()) &&
-          nextOfKinData.fullName.toLowerCase().includes(purchase.member.lastName.toLowerCase());
-
-        await tx.burialNextOfKin.create({
-          data: {
-            deceasedId: deceased.id,
-            fullName: nextOfKinData.fullName,
-            relationship: nextOfKinData.relationship,
-            phone: nextOfKinData.phone,
-            email: nextOfKinData.email || null,
-            address: nextOfKinData.address,
-            isBuyer: nextOfKinData.isBuyer || isBuyer || false,
-          },
-        });
-      }
+      await tx.burialNextOfKin.create({
+        data: {
+          deceasedId: deceased.id,
+          fullName: nextOfKinData.fullName,
+          relationship: nextOfKinData.relationship,
+          phone: nextOfKinData.phone,
+          email: nextOfKinData.email || null,
+          address: nextOfKinData.address,
+          isBuyer: nextOfKinData.isBuyer ?? isBuyer ?? false,
+        },
+      });
 
       // ✅ MARK AS REDEEMED ONCE DECEASED DETAILS ARE SAVED
       await tx.purchase.update({

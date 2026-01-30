@@ -69,7 +69,14 @@ export class DeceasedService {
         );
       }
 
-      // 5️⃣ Create deceased
+      // 5️⃣ Require next of kin: you cannot save a deceased without their next of kin
+      if (!dto.nextOfKin) {
+        throw new BadRequestException(
+          'Next of kin details are required. You cannot save a deceased without their next of kin.',
+        );
+      }
+
+      // 6️⃣ Create deceased
       const deceased = await tx.deceased.create({
         data: {
           purchaseId: purchase.id,
@@ -87,22 +94,20 @@ export class DeceasedService {
         },
       });
 
-      // 6️⃣ Create BurialNextOfKin - tied to deceased, not member (if provided)
-      if (dto.nextOfKin) {
-        await tx.burialNextOfKin.create({
-          data: {
-            deceasedId: deceased.id,
-            fullName: dto.nextOfKin.fullName,
-            relationship: dto.nextOfKin.relationship,
-            phone: dto.nextOfKin.phone,
-            email: dto.nextOfKin.email || null,
-            address: dto.nextOfKin.address,
-            isBuyer: dto.nextOfKin.isBuyer || false,
-          },
-        });
-      }
+      // 7️⃣ Create BurialNextOfKin immediately after deceased (required: every deceased has one next of kin)
+      await tx.burialNextOfKin.create({
+        data: {
+          deceasedId: deceased.id,
+          fullName: dto.nextOfKin.fullName,
+          relationship: dto.nextOfKin.relationship,
+          phone: dto.nextOfKin.phone,
+          email: dto.nextOfKin.email || null,
+          address: dto.nextOfKin.address,
+          isBuyer: dto.nextOfKin.isBuyer || false,
+        },
+      });
 
-      // 7️⃣ Redeem purchase (ATOMIC)
+      // 8️⃣ Redeem purchase (ATOMIC)
       await tx.purchase.update({
         where: { id: purchase.id },
         data: {

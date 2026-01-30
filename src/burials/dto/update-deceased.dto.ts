@@ -1,5 +1,32 @@
-import { IsString, IsOptional, IsDateString, IsEnum, IsUUID } from 'class-validator';
+import { IsString, IsOptional, IsDateString, IsEnum, IsUUID, IsBoolean, ValidateNested } from 'class-validator';
+import { Type } from 'class-transformer';
 import { BurialStatus } from '@prisma/client';
+
+class UpdateNextOfKinDto {
+  @IsOptional()
+  @IsString()
+  fullName?: string;
+
+  @IsOptional()
+  @IsString()
+  relationship?: string;
+
+  @IsOptional()
+  @IsString()
+  phone?: string;
+
+  @IsOptional()
+  @IsString()
+  email?: string;
+
+  @IsOptional()
+  @IsString()
+  address?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  isBuyer?: boolean;
+}
 
 export class UpdateDeceasedDto {
   @IsOptional()
@@ -53,4 +80,10 @@ export class UpdateDeceasedDto {
   @IsOptional()
   @IsUUID()
   purchaseId?: string;
+
+  // Next of Kin fields
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => UpdateNextOfKinDto)
+  nextOfKin?: UpdateNextOfKinDto;
 }

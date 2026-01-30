@@ -294,6 +294,7 @@ export class TransactService {
 
   /* =====================================================
    * GET MEMBER NEXT OF KIN (WEB - STAFF)
+   * Returns last-used BurialNextOfKin for this member (from their purchases/deceased) for pre-fill.
    * ===================================================== */
   async getMemberNextOfKin(memberId: string, userId?: string) {
     // Validate member exists
@@ -310,22 +311,35 @@ export class TransactService {
         },
       );
 
-      const nextOfKin = await this.prisma.nextOfKin.findUnique({
-        where: { memberId },
+      // Last BurialNextOfKin linked to a deceased from this member's purchase (for pre-fill)
+      const burialNok = await this.prisma.burialNextOfKin.findFirst({
+        where: {
+          deceased: {
+            purchase: { memberId },
+          },
+        },
+        orderBy: { createdAt: 'desc' },
+        select: {
+          fullName: true,
+          relationship: true,
+          phone: true,
+          email: true,
+          address: true,
+        },
       });
 
       this.logger.info(
-        `[TRANSACT] Next of kin fetched: ${nextOfKin ? 'found' : 'not found'}`,
+        `[TRANSACT] Next of kin fetched: ${burialNok ? 'found' : 'not found'}`,
         LogCategory.SYSTEM,
         {
           eventType: 'transact_get_member_next_of_kin_success',
           memberId,
-          hasNextOfKin: !!nextOfKin,
+          hasNextOfKin: !!burialNok,
           userId,
         },
       );
 
-      return nextOfKin;
+      return burialNok;
     } catch (error) {
       this.logger.error(
         `[TRANSACT] Failed to fetch next of kin: ${error instanceof Error ? error.message : 'Unknown error'}`,
