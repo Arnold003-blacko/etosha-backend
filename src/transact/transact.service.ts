@@ -157,15 +157,6 @@ export class TransactService {
           address: true,
           city: true,
           createdAt: true,
-          nextOfKin: {
-            select: {
-              fullName: true,
-              relationship: true,
-              phone: true,
-              email: true,
-              address: true,
-            },
-          },
         },
       });
 
