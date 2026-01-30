@@ -393,26 +393,26 @@ export class PaymentsService {
         console.log(
           `[PAYMENTS] ✅ Conditions met: Product category is SERENITY_GROUND, transactService available`,
         );
-        // Process in background to avoid blocking
-        setImmediate(async () => {
-          try {
-            console.log(
-              `[PAYMENTS] 🚀 Processing pending deceased/next of kin details for purchase: ${purchase.id}`,
-            );
-            await this.transactService.processPendingDetailsForPurchase(
-              purchase.id,
-              purchase.memberId,
-            );
-            console.log(
-              `[PAYMENTS] ✅ Successfully saved deceased and next of kin records for purchase: ${purchase.id}`,
-            );
-          } catch (err) {
-            console.error(
-              `[PAYMENTS] ❌ Failed to process pending details after payment finalization for purchase ${purchase.id}:`,
-              err,
-            );
-          }
-        });
+        // Process SYNCHRONOUSLY to ensure records are created immediately
+        // This prevents orphan records and ensures data consistency
+        try {
+          console.log(
+            `[PAYMENTS] 🚀 Processing pending deceased/next of kin details for purchase: ${purchase.id}`,
+          );
+          await this.transactService.processPendingDetailsForPurchase(
+            purchase.id,
+            purchase.memberId,
+          );
+          console.log(
+            `[PAYMENTS] ✅ Successfully saved deceased and next of kin records for purchase: ${purchase.id}`,
+          );
+        } catch (err) {
+          console.error(
+            `[PAYMENTS] ❌ Failed to process pending details after payment finalization for purchase ${purchase.id}:`,
+            err,
+          );
+          // Log error but don't fail the payment - details can be added manually later
+        }
       } else {
         console.log(
           `[PAYMENTS] ⚠️ Conditions NOT met: productCategory=${product?.category}, transactService=${!!this.transactService}`,

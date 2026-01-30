@@ -760,21 +760,23 @@ export class TransactService {
       );
 
       // Store deceased and next of kin details temporarily for immediate burials
+      // Stored in memory only - will be processed immediately after payment completes
       if (
         purchaseDto.purchaseType === PurchaseType.IMMEDIATE &&
         deceasedDetails &&
         nextOfKinDetails
       ) {
         console.log(
-          `[TRANSACT] 💾 Storing pending details for purchase: ${purchase.id}, deceased: ${deceasedDetails.fullName}`,
+          `[TRANSACT] 💾 Storing pending details in memory for purchase: ${purchase.id}, deceased: ${deceasedDetails.fullName}`,
         );
+        
         this.pendingDetailsMap.set(purchase.id, {
           deceasedDetails,
           nextOfKinDetails,
         });
 
         console.log(
-          `[TRANSACT] ✅ Stored pending details. Map size now: ${this.pendingDetailsMap.size}`,
+          `[TRANSACT] ✅ Stored pending details in memory. Map size now: ${this.pendingDetailsMap.size}`,
         );
 
         this.logger.info(
@@ -1113,34 +1115,33 @@ export class TransactService {
       });
 
       // Process pending details if purchase is fully paid and is an immediate burial
+      // Process SYNCHRONOUSLY to ensure records are created immediately and avoid orphan records
       if (
         updatedPurchase?.status === PurchaseStatus.PAID &&
         updatedPurchase?.purchaseType === PurchaseType.IMMEDIATE &&
         updatedPurchase?.product?.category === ItemCategory.SERENITY_GROUND
       ) {
-        // Process in background to avoid blocking the response
-        setImmediate(async () => {
-          try {
-            await this.processPendingDetailsForPurchase(
-              payment.purchaseId,
-              payment.memberId,
+        try {
+          await this.processPendingDetailsForPurchase(
+            payment.purchaseId,
+            payment.memberId,
+            staffUserId,
+          );
+        } catch (err) {
+          this.logger.error(
+            `[TRANSACT] Failed to process pending details after payment: ${err instanceof Error ? err.message : 'Unknown error'}`,
+            err instanceof Error ? err : new Error(String(err)),
+            LogCategory.SYSTEM,
+            {
+              eventType: 'transact_process_pending_details_error',
+              purchaseId: payment.purchaseId,
+              paymentId: payment.id,
+              memberId: payment.memberId,
               staffUserId,
-            );
-          } catch (err) {
-            this.logger.error(
-              `[TRANSACT] Failed to process pending details after payment: ${err instanceof Error ? err.message : 'Unknown error'}`,
-              err instanceof Error ? err : new Error(String(err)),
-              LogCategory.SYSTEM,
-              {
-                eventType: 'transact_process_pending_details_error',
-                purchaseId: payment.purchaseId,
-                paymentId: payment.id,
-                memberId: payment.memberId,
-                staffUserId,
-              },
-            );
-          }
-        });
+            },
+          );
+          // Don't throw - payment already succeeded, details can be added manually later
+        }
       }
     }
 
@@ -1192,7 +1193,7 @@ export class TransactService {
 
     if (!pendingDetails) {
       console.log(
-        `[TRANSACT] ⚠️ No pending details found in map for purchase: ${purchaseId}`,
+        `[TRANSACT] ⚠️ No pending details found in memory for purchase: ${purchaseId}`,
       );
       this.logger.warn(
         `[TRANSACT] No pending details found for purchase: ${purchaseId}. Details may have been lost due to server restart or were never stored.`,
@@ -1267,8 +1268,17 @@ export class TransactService {
         memberId,
       );
 
-      // Remove from pending map
+      // Remove from pending map and database
       this.pendingDetailsMap.delete(purchaseId);
+      
+      // Clear from database as well
+      await this.prisma.purchase.update({
+        where: { id: purchaseId },
+        data: {
+          pendingDeceasedDetails: null,
+          pendingNextOfKinDetails: null,
+        } as any, // Type assertion needed until Prisma client is regenerated
+      });
 
       this.logger.info(
         `[TRANSACT] ✅ Successfully saved deceased and next of kin records for purchase: ${purchaseId}`,
