@@ -7,7 +7,8 @@ import {
   UseGuards,
   BadRequestException,
 } from '@nestjs/common';
-import { Response } from 'express';
+import * as express from 'express';
+import * as ExcelJS from 'exceljs';
 import { ReportsService } from './reports.service';
 import { StaffJwtGuard } from '../staff-auth/staff-jwt.guard';
 import {
@@ -54,7 +55,7 @@ export class ReportsController {
   @Get('debtors')
   async generateDebtorsReport(
     @Query() query: ReportQueryParams,
-    @Res() res: Response,
+    @Res() res: express.Response,
   ) {
     try {
       const workbook = await this.reportsService.generateDebtorsReport();
@@ -80,7 +81,7 @@ export class ReportsController {
   @Get('plans-started-this-month')
   async generatePlansStartedThisMonthReport(
     @Query() query: ReportQueryParams,
-    @Res() res: Response,
+    @Res() res: express.Response,
   ) {
     try {
       const dateRange = parseDateRange(
@@ -113,7 +114,7 @@ export class ReportsController {
   }
 
   @Get('defaulted-plans')
-  async generateDefaultedPlansReport(@Res() res: Response) {
+  async generateDefaultedPlansReport(@Res() res: express.Response) {
     try {
       const workbook =
         await this.reportsService.generateDefaultedPlansReport();
@@ -137,7 +138,7 @@ export class ReportsController {
   }
 
   @Get('graves-sold')
-  async generateGravesSoldReport(@Res() res: Response) {
+  async generateGravesSoldReport(@Res() res: express.Response) {
     try {
       const workbook = await this.reportsService.generateGravesSoldReport();
       const buffer = await workbook.xlsx.writeBuffer();
@@ -162,7 +163,7 @@ export class ReportsController {
   @Get('section-revenue')
   async generateSectionRevenueReport(
     @Query() query: ReportQueryParams,
-    @Res() res: Response,
+    @Res() res: express.Response,
   ) {
     try {
       const dateRange = parseDateRange(
@@ -195,7 +196,7 @@ export class ReportsController {
   }
 
   @Get('members')
-  async generateMembersListReport(@Res() res: Response) {
+  async generateMembersListReport(@Res() res: express.Response) {
     try {
       const workbook = await this.reportsService.generateMembersListReport();
       const buffer = await workbook.xlsx.writeBuffer();
@@ -218,7 +219,7 @@ export class ReportsController {
   }
 
   @Get('revenue')
-  async generateRevenueReport(@Res() res: Response) {
+  async generateRevenueReport(@Res() res: express.Response) {
     try {
       const workbook = await this.reportsService.generateRevenueReport();
       const buffer = await workbook.xlsx.writeBuffer();
@@ -243,7 +244,7 @@ export class ReportsController {
   @Get('all')
   async generateAllReports(
     @Query() query: ReportQueryParams,
-    @Res() res: Response,
+    @Res() res: express.Response,
   ) {
     try {
       const ExcelJS = await import('exceljs');
@@ -293,7 +294,7 @@ export class ReportsController {
       }
       if (datasetsToInclude.includes('members')) {
         reportGenerators.push(() =>
-          this.reportsService.generateMembersListReport(),
+          this.reportsService.generateMembersListReport(dateRange ?? undefined),
         );
       }
       if (datasetsToInclude.includes('revenue')) {
@@ -333,8 +334,11 @@ export class ReportsController {
               newCell.style = JSON.parse(JSON.stringify(cell.style));
             }
           });
-          if (row.style) {
-            newRow.style = JSON.parse(JSON.stringify(row.style));
+          const rowWithStyle = row as ExcelJS.Row & { style?: unknown };
+          if (rowWithStyle.style) {
+            (newRow as ExcelJS.Row & { style?: unknown }).style = JSON.parse(
+              JSON.stringify(rowWithStyle.style),
+            );
           }
         });
       };

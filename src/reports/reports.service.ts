@@ -464,21 +464,23 @@ export class ReportsService {
   }
 
   /**
-   * Generate Section Revenue This Year Report
+   * Generate Section Revenue Report (for chosen year or month range)
    */
-  async generateSectionRevenueThisYearReport(): Promise<ExcelJS.Workbook> {
+  async generateSectionRevenueThisYearReport(
+    dateRange?: ReportDateRange,
+  ): Promise<ExcelJS.Workbook> {
     const workbook = new ExcelJS.Workbook();
     const worksheet = workbook.addWorksheet('Section Revenue This Year');
 
     const now = new Date();
-    const startOfYear = new Date(now.getFullYear(), 0, 1);
-    const endOfYear = new Date(now.getFullYear(), 11, 31, 23, 59, 59);
+    const startOfRange = dateRange?.start ?? new Date(now.getFullYear(), 0, 1);
+    const endOfRange = dateRange?.end ?? new Date(now.getFullYear(), 11, 31, 23, 59, 59);
 
     const purchases = await this.prisma.purchase.findMany({
       where: {
         createdAt: {
-          gte: startOfYear,
-          lte: endOfYear,
+          gte: startOfRange,
+          lte: endOfRange,
         },
         status: PurchaseStatus.PAID,
         product: {
