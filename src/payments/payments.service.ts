@@ -30,7 +30,7 @@ export class PaymentsService {
     @Inject(forwardRef(() => DashboardGateway))
     private readonly dashboardGateway: DashboardGateway,
     @Inject(forwardRef(() => TransactService))
-    private readonly transactService?: TransactService,
+    private readonly transactService: TransactService,
   ) {}
 
   /* =====================================================
@@ -374,29 +374,34 @@ export class PaymentsService {
     this.dashboardGateway.broadcastDashboardUpdate();
 
     // Process pending deceased/next of kin details if purchase is fully paid and is an immediate burial
-    // This handles webhook payments (EcoCash) that finalize through this method
+    // This handles webhook payments (PayNow/EcoCash) that finalize through this method
     if (
       status === PaymentStatus.SUCCESS &&
       newBalance <= 0 &&
-      purchase.purchaseType === PurchaseType.IMMEDIATE &&
-      this.transactService
+      purchase.purchaseType === PurchaseType.IMMEDIATE
     ) {
       // Get product to check category
       const product = await this.prisma.product.findUnique({
         where: { id: purchase.productId },
       });
 
-      if (product?.category === ItemCategory.SERENITY_GROUND) {
+      if (product?.category === ItemCategory.SERENITY_GROUND && this.transactService) {
         // Process in background to avoid blocking
         setImmediate(async () => {
           try {
-            await this.transactService!.processPendingDetailsForPurchase(
+            console.log(
+              `[PAYMENTS] Processing pending deceased/next of kin details for purchase: ${purchase.id}`,
+            );
+            await this.transactService.processPendingDetailsForPurchase(
               purchase.id,
               purchase.memberId,
             );
+            console.log(
+              `[PAYMENTS] ✅ Successfully saved deceased and next of kin records for purchase: ${purchase.id}`,
+            );
           } catch (err) {
             console.error(
-              `[PAYMENTS] Failed to process pending details after payment finalization:`,
+              `[PAYMENTS] ❌ Failed to process pending details after payment finalization for purchase ${purchase.id}:`,
               err,
             );
           }

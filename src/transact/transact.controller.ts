@@ -202,4 +202,19 @@ export class TransactController {
       throw error;
     }
   }
+
+  /* =====================================================
+   * VERIFY DECEASED RECORDS WERE SAVED
+   * GET /transact/purchases/:purchaseId/verify-deceased
+   * Returns whether deceased and next of kin records exist for a purchase
+   * ===================================================== */
+  @Get('purchases/:purchaseId/verify-deceased')
+  @HttpCode(HttpStatus.OK)
+  async verifyDeceasedRecordsSaved(@Param('purchaseId') purchaseId: string) {
+    try {
+      return await this.transactService.verifyDeceasedRecordsSaved(purchaseId);
+    } catch (error) {
+      throw error;
+    }
+  }
 }

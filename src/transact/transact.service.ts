@@ -1198,7 +1198,7 @@ export class TransactService {
 
       // Create deceased record with next of kin (this also redeems the purchase)
       // Next of kin is tied to deceased via BurialNextOfKin, not to member
-      await this.deceasedService.createAndRedeem(
+      const deceased = await this.deceasedService.createAndRedeem(
         {
           ...deceasedDetails,
           purchaseId,
@@ -1214,14 +1214,21 @@ export class TransactService {
       this.pendingDetailsMap.delete(purchaseId);
 
       this.logger.info(
-        `[TRANSACT] Successfully created deceased and next of kin records for purchase: ${purchaseId}`,
+        `[TRANSACT] ✅ Successfully saved deceased and next of kin records for purchase: ${purchaseId}`,
         LogCategory.SYSTEM,
         {
           eventType: 'transact_process_pending_details_success',
           purchaseId,
           memberId,
           staffUserId,
+          deceasedId: deceased.id,
+          deceasedName: deceased.fullName,
+          nextOfKinName: nextOfKinDetails.fullName,
         },
+      );
+
+      console.log(
+        `[TRANSACT] ✅ SAVE CONFIRMED: Deceased "${deceased.fullName}" (ID: ${deceased.id}) and Next of Kin "${nextOfKinDetails.fullName}" saved to database for purchase ${purchaseId}`,
       );
     } catch (error) {
       this.logger.error(
@@ -1240,6 +1247,66 @@ export class TransactService {
 
       // Don't throw - payment already succeeded, details can be added manually later
       // But log the error for staff to handle
+    }
+  }
+
+  /* =====================================================
+   * VERIFY DECEASED RECORDS WERE SAVED
+   * Check if deceased and next of kin records exist for a purchase
+   * ===================================================== */
+  async verifyDeceasedRecordsSaved(purchaseId: string): Promise<{
+    saved: boolean;
+    deceased?: {
+      id: string;
+      fullName: string;
+      nextOfKin?: {
+        fullName: string;
+        relationship: string;
+        phone: string;
+      };
+    };
+  }> {
+    try {
+      const purchase = await this.prisma.purchase.findUnique({
+        where: { id: purchaseId },
+        include: {
+          deceased: {
+            include: {
+              nextOfKin: true,
+            },
+          },
+        },
+      });
+
+      if (!purchase || !purchase.deceased) {
+        return { saved: false };
+      }
+
+      return {
+        saved: true,
+        deceased: {
+          id: purchase.deceased.id,
+          fullName: purchase.deceased.fullName,
+          nextOfKin: purchase.deceased.nextOfKin
+            ? {
+                fullName: purchase.deceased.nextOfKin.fullName,
+                relationship: purchase.deceased.nextOfKin.relationship,
+                phone: purchase.deceased.nextOfKin.phone,
+              }
+            : undefined,
+        },
+      };
+    } catch (error) {
+      this.logger.error(
+        `[TRANSACT] Failed to verify deceased records: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        error instanceof Error ? error : new Error(String(error)),
+        LogCategory.SYSTEM,
+        {
+          eventType: 'transact_verify_deceased_error',
+          purchaseId,
+        },
+      );
+      return { saved: false };
     }
   }
 }
