@@ -487,15 +487,39 @@ export class TransactService {
       });
 
       // For immediate burials, create deceased and next of kin records after payment
+      console.log(
+        `[TRANSACT] 🔍 Cash payment: Checking if should process pending details: purchaseId=${dto.purchaseId}, status=${updatedPurchase?.status}, purchaseType=${updatedPurchase?.purchaseType}, productCategory=${updatedPurchase?.product?.category}`,
+      );
+      
       if (
         updatedPurchase?.status === PurchaseStatus.PAID &&
         updatedPurchase?.purchaseType === PurchaseType.IMMEDIATE &&
         updatedPurchase?.product?.category === ItemCategory.SERENITY_GROUND
       ) {
-        await this.processPendingDetailsForPurchase(
-          dto.purchaseId,
-          dto.memberId,
-          staffUserId,
+        console.log(
+          `[TRANSACT] ✅ Cash payment: Conditions met, processing pending details for purchase: ${dto.purchaseId}`,
+        );
+        try {
+          await this.processPendingDetailsForPurchase(
+            dto.purchaseId,
+            dto.memberId,
+            staffUserId,
+          );
+          console.log(
+            `[TRANSACT] ✅ Cash payment: Successfully processed pending details for purchase: ${dto.purchaseId}`,
+          );
+        } catch (err) {
+          console.error(
+            `[TRANSACT] ❌ Cash payment: CRITICAL ERROR processing pending details for purchase ${dto.purchaseId}:`,
+            err instanceof Error ? err.message : 'Unknown error',
+          );
+          console.error(`[TRANSACT] Error stack:`, err);
+          // Re-throw so we know about the failure
+          throw err;
+        }
+      } else {
+        console.log(
+          `[TRANSACT] ⚠️ Cash payment: Conditions NOT met - status=${updatedPurchase?.status}, purchaseType=${updatedPurchase?.purchaseType}, productCategory=${updatedPurchase?.product?.category}`,
         );
       }
 
@@ -1226,9 +1250,15 @@ export class TransactService {
       return;
     }
 
-    console.log(
-      `[TRANSACT] ✅ Found pending details for purchase: ${purchaseId}, deceased: ${pendingDetails.deceasedDetails.fullName}`,
-    );
+      console.log(
+        `[TRANSACT] ✅ Found pending details for purchase: ${purchaseId}, deceased: ${pendingDetails.deceasedDetails.fullName}`,
+      );
+      console.log(
+        `[TRANSACT] Deceased details:`, JSON.stringify(pendingDetails.deceasedDetails, null, 2),
+      );
+      console.log(
+        `[TRANSACT] Next of kin details:`, JSON.stringify(pendingDetails.nextOfKinDetails, null, 2),
+      );
 
     try {
       this.logger.info(
@@ -1268,17 +1298,8 @@ export class TransactService {
         memberId,
       );
 
-      // Remove from pending map and database
+      // Remove from pending map (records now saved to database)
       this.pendingDetailsMap.delete(purchaseId);
-      
-      // Clear from database as well
-      await this.prisma.purchase.update({
-        where: { id: purchaseId },
-        data: {
-          pendingDeceasedDetails: null,
-          pendingNextOfKinDetails: null,
-        } as any, // Type assertion needed until Prisma client is regenerated
-      });
 
       this.logger.info(
         `[TRANSACT] ✅ Successfully saved deceased and next of kin records for purchase: ${purchaseId}`,
@@ -1298,10 +1319,17 @@ export class TransactService {
         `[TRANSACT] ✅ SAVE CONFIRMED: Deceased "${deceased.fullName}" (ID: ${deceased.id}) and Next of Kin "${nextOfKinDetails.fullName}" saved to database for purchase ${purchaseId}`,
       );
     } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      const errorStack = error instanceof Error ? error.stack : String(error);
+      
+      console.error(
+        `[TRANSACT] ❌ CRITICAL ERROR processing pending details for purchase ${purchaseId}:`,
+        errorMessage,
+      );
+      console.error(`[TRANSACT] Error stack:`, errorStack);
+      
       this.logger.error(
-        `[TRANSACT] Failed to process pending details: ${
-          error instanceof Error ? error.message : 'Unknown error'
-        }`,
+        `[TRANSACT] Failed to process pending details: ${errorMessage}`,
         error instanceof Error ? error : new Error(String(error)),
         LogCategory.SYSTEM,
         {
@@ -1309,11 +1337,16 @@ export class TransactService {
           purchaseId,
           memberId,
           staffUserId,
+          errorMessage,
+          errorStack,
         },
       );
 
-      // Don't throw - payment already succeeded, details can be added manually later
-      // But log the error for staff to handle
+      // Re-throw the error so it's visible - we need to know if this fails
+      // Payment succeeded but records weren't created - this is critical
+      throw new Error(
+        `Failed to create deceased and next of kin records after payment: ${errorMessage}`,
+      );
     }
   }
 

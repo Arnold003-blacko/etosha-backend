@@ -407,11 +407,18 @@ export class PaymentsService {
             `[PAYMENTS] ✅ Successfully saved deceased and next of kin records for purchase: ${purchase.id}`,
           );
         } catch (err) {
+          const errorMessage = err instanceof Error ? err.message : 'Unknown error';
           console.error(
-            `[PAYMENTS] ❌ Failed to process pending details after payment finalization for purchase ${purchase.id}:`,
-            err,
+            `[PAYMENTS] ❌ CRITICAL: Failed to process pending details after payment finalization for purchase ${purchase.id}:`,
+            errorMessage,
           );
+          console.error(`[PAYMENTS] Error details:`, err);
+          
           // Log error but don't fail the payment - details can be added manually later
+          // However, this is a critical issue that needs attention
+          console.error(
+            `[PAYMENTS] CRITICAL: Payment succeeded but deceased/next of kin records were NOT created for purchase ${purchase.id}. Error: ${errorMessage}`,
+          );
         }
       } else {
         console.log(
