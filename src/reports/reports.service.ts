@@ -353,11 +353,9 @@ export class ReportsService {
       });
     });
 
-    ['totalAmount', 'paidAmount', 'balance', 'monthlyInstallment'].forEach(
-      (col) => {
-        worksheet.getColumn(col).numFmt = '$#,##0.00';
-      },
-    );
+    ['totalAmount', 'paidAmount', 'balance', 'monthlyInstallment'].forEach((col) => {
+      worksheet.getColumn(col).numFmt = '$#,##0.00';
+    });
 
     return workbook;
   }
@@ -371,15 +369,13 @@ export class ReportsService {
     const workbook = new ExcelJS.Workbook();
     const worksheet = workbook.addWorksheet('Graves Sold');
 
-    const where: { purchaseId: { not: null }; createdAt?: { gte: Date; lte: Date } } = {
-      purchaseId: { not: null },
-    };
-    if (dateRange) {
-      where.createdAt = { gte: dateRange.start, lte: dateRange.end };
-    }
-
     const graveSlots = await this.prisma.graveSlot.findMany({
-      where,
+      where: {
+        purchaseId: { not: null },
+        ...(dateRange && {
+          createdAt: { gte: dateRange.start, lte: dateRange.end },
+        }),
+      },
       include: {
         grave: true,
         purchase: {
@@ -461,9 +457,8 @@ export class ReportsService {
       });
     });
 
-    if (worksheet.getColumn('priceAtPurchase')) {
-      worksheet.getColumn('priceAtPurchase').numFmt = '$#,##0.00';
-    }
+    const priceCol = worksheet.getColumn('priceAtPurchase');
+    if (priceCol) priceCol.numFmt = '$#,##0.00';
 
     return workbook;
   }
