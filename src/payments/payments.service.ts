@@ -385,12 +385,19 @@ export class PaymentsService {
         where: { id: purchase.productId },
       });
 
+      console.log(
+        `[PAYMENTS] 🔍 Checking if should process pending details: purchaseId=${purchase.id}, purchaseType=${purchase.purchaseType}, newBalance=${newBalance}, productId=${purchase.productId}`,
+      );
+
       if (product?.category === ItemCategory.SERENITY_GROUND && this.transactService) {
+        console.log(
+          `[PAYMENTS] ✅ Conditions met: Product category is SERENITY_GROUND, transactService available`,
+        );
         // Process in background to avoid blocking
         setImmediate(async () => {
           try {
             console.log(
-              `[PAYMENTS] Processing pending deceased/next of kin details for purchase: ${purchase.id}`,
+              `[PAYMENTS] 🚀 Processing pending deceased/next of kin details for purchase: ${purchase.id}`,
             );
             await this.transactService.processPendingDetailsForPurchase(
               purchase.id,
@@ -406,6 +413,10 @@ export class PaymentsService {
             );
           }
         });
+      } else {
+        console.log(
+          `[PAYMENTS] ⚠️ Conditions NOT met: productCategory=${product?.category}, transactService=${!!this.transactService}`,
+        );
       }
     }
   }

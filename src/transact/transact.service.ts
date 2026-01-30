@@ -765,10 +765,17 @@ export class TransactService {
         deceasedDetails &&
         nextOfKinDetails
       ) {
+        console.log(
+          `[TRANSACT] 💾 Storing pending details for purchase: ${purchase.id}, deceased: ${deceasedDetails.fullName}`,
+        );
         this.pendingDetailsMap.set(purchase.id, {
           deceasedDetails,
           nextOfKinDetails,
         });
+
+        console.log(
+          `[TRANSACT] ✅ Stored pending details. Map size now: ${this.pendingDetailsMap.size}`,
+        );
 
         this.logger.info(
           `[TRANSACT] Stored pending deceased/next of kin details for purchase: ${purchase.id}`,
@@ -778,7 +785,13 @@ export class TransactService {
             purchaseId: purchase.id,
             memberId,
             staffUserId,
+            deceasedName: deceasedDetails.fullName,
+            nextOfKinName: nextOfKinDetails.fullName,
           },
+        );
+      } else {
+        console.log(
+          `[TRANSACT] ⚠️ NOT storing pending details: purchaseType=${purchaseDto.purchaseType}, hasDeceased=${!!deceasedDetails}, hasNextOfKin=${!!nextOfKinDetails}`,
         );
       }
 
@@ -1165,12 +1178,56 @@ export class TransactService {
     memberId: string,
     staffUserId?: string,
   ) {
+    console.log(
+      `[TRANSACT] 🔍 Checking pending details for purchase: ${purchaseId}`,
+    );
+    console.log(
+      `[TRANSACT] Pending details map size: ${this.pendingDetailsMap.size}`,
+    );
+    console.log(
+      `[TRANSACT] Pending details map keys: ${Array.from(this.pendingDetailsMap.keys()).join(', ')}`,
+    );
+
     const pendingDetails = this.pendingDetailsMap.get(purchaseId);
 
-    if (!pendingDetails || !pendingDetails.deceasedDetails) {
-      // No pending details or no deceased details (future plan), skip
+    if (!pendingDetails) {
+      console.log(
+        `[TRANSACT] ⚠️ No pending details found in map for purchase: ${purchaseId}`,
+      );
+      this.logger.warn(
+        `[TRANSACT] No pending details found for purchase: ${purchaseId}. Details may have been lost due to server restart or were never stored.`,
+        LogCategory.SYSTEM,
+        {
+          eventType: 'transact_pending_details_missing',
+          purchaseId,
+          memberId,
+          staffUserId,
+          mapSize: this.pendingDetailsMap.size,
+        },
+      );
       return;
     }
+
+    if (!pendingDetails.deceasedDetails) {
+      console.log(
+        `[TRANSACT] ⚠️ Pending details exist but no deceased details for purchase: ${purchaseId}`,
+      );
+      this.logger.warn(
+        `[TRANSACT] Pending details found but no deceased details for purchase: ${purchaseId}. This might be a future plan.`,
+        LogCategory.SYSTEM,
+        {
+          eventType: 'transact_no_deceased_details',
+          purchaseId,
+          memberId,
+          staffUserId,
+        },
+      );
+      return;
+    }
+
+    console.log(
+      `[TRANSACT] ✅ Found pending details for purchase: ${purchaseId}, deceased: ${pendingDetails.deceasedDetails.fullName}`,
+    );
 
     try {
       this.logger.info(
