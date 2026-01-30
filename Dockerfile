@@ -16,6 +16,9 @@ COPY prisma ./prisma/
 # Install all dependencies (including dev dependencies for build)
 RUN npm ci
 
+# Generate Prisma Client (required before TypeScript build)
+RUN npx prisma generate
+
 # Copy backend application files
 COPY . .
 
