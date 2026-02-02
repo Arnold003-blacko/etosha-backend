@@ -19,22 +19,31 @@ import {
 } from './dto/report-query.dto';
 
 export interface ReportQueryParams {
+  from?: string; // ISO date YYYY-MM-DD – start of period
+  to?: string;   // ISO date YYYY-MM-DD – end of period
   year?: string;
   month?: string;
   timeline?: string;
   datasets?: string; // comma-separated for /all
 }
 
-function parseDateRange(
-  year?: string,
-  month?: string,
-  timeline?: string,
-): { start: Date; end: Date; label: string } | null {
-  const y = year ? parseInt(year, 10) : undefined;
+/** Prefer from/to; fall back to year/month/timeline. */
+function parseDateRangeFromQuery(query: ReportQueryParams): { start: Date; end: Date; label: string } | null {
+  if (query.from && query.to) {
+    const start = new Date(query.from);
+    const end = new Date(query.to);
+    if (!isNaN(start.getTime()) && !isNaN(end.getTime())) {
+      start.setHours(0, 0, 0, 0);
+      end.setHours(23, 59, 59, 999);
+      const label = `${query.from}_to_${query.to}`;
+      return { start, end, label };
+    }
+  }
+  const y = query.year ? parseInt(query.year, 10) : undefined;
   if (y == null || isNaN(y)) return null;
-  const m = month ? parseInt(month, 10) : undefined;
+  const m = query.month ? parseInt(query.month, 10) : undefined;
   const tl: ReportTimeline =
-    timeline === 'monthly' || timeline === 'yearly' ? timeline : 'yearly';
+    query.timeline === 'monthly' || query.timeline === 'yearly' ? query.timeline : 'yearly';
   return getReportDateRange(y, m, tl);
 }
 
@@ -84,11 +93,7 @@ export class ReportsController {
     @Res() res: express.Response,
   ) {
     try {
-      const dateRange = parseDateRange(
-        query.year,
-        query.month,
-        query.timeline,
-      );
+      const dateRange = parseDateRangeFromQuery(query);
       const workbook =
         await this.reportsService.generatePlansStartedThisMonthReport(
           dateRange ?? undefined,
@@ -166,11 +171,7 @@ export class ReportsController {
     @Res() res: express.Response,
   ) {
     try {
-      const dateRange = parseDateRange(
-        query.year,
-        query.month,
-        query.timeline,
-      );
+      const dateRange = parseDateRangeFromQuery(query);
       const workbook =
         await this.reportsService.generateSectionRevenueThisYearReport(
           dateRange ?? undefined,
@@ -196,10 +197,17 @@ export class ReportsController {
   }
 
   @Get('members')
-  async generateMembersListReport(@Res() res: express.Response) {
+  async generateMembersListReport(
+    @Query() query: ReportQueryParams,
+    @Res() res: express.Response,
+  ) {
     try {
-      const workbook = await this.reportsService.generateMembersListReport();
+      const dateRange = parseDateRangeFromQuery(query);
+      const workbook = await this.reportsService.generateMembersListReport(
+        dateRange ?? undefined,
+      );
       const buffer = await workbook.xlsx.writeBuffer();
+      const suffix = dateRange ? dateRange.label : new Date().toISOString().split('T')[0];
 
       res.setHeader(
         'Content-Type',
@@ -207,7 +215,7 @@ export class ReportsController {
       );
       res.setHeader(
         'Content-Disposition',
-        `attachment; filename=members-list-${new Date().toISOString().split('T')[0]}.xlsx`,
+        `attachment; filename=members-list-${suffix}.xlsx`,
       );
 
       return res.send(buffer);
@@ -219,10 +227,17 @@ export class ReportsController {
   }
 
   @Get('revenue')
-  async generateRevenueReport(@Res() res: express.Response) {
+  async generateRevenueReport(
+    @Query() query: ReportQueryParams,
+    @Res() res: express.Response,
+  ) {
     try {
-      const workbook = await this.reportsService.generateRevenueReport();
+      const dateRange = parseDateRangeFromQuery(query);
+      const workbook = await this.reportsService.generateRevenueReport(
+        dateRange ?? undefined,
+      );
       const buffer = await workbook.xlsx.writeBuffer();
+      const suffix = dateRange ? dateRange.label : String(new Date().getFullYear());
 
       res.setHeader(
         'Content-Type',
@@ -230,13 +245,43 @@ export class ReportsController {
       );
       res.setHeader(
         'Content-Disposition',
-        `attachment; filename=revenue-report-${new Date().getFullYear()}.xlsx`,
+        `attachment; filename=revenue-report-${suffix}.xlsx`,
       );
 
       return res.send(buffer);
     } catch (error) {
       throw new BadRequestException(
         `Failed to generate revenue report: ${error instanceof Error ? error.message : 'Unknown error'}`,
+      );
+    }
+  }
+
+  @Get('payments')
+  async generatePaymentsReport(
+    @Query() query: ReportQueryParams,
+    @Res() res: express.Response,
+  ) {
+    try {
+      const dateRange = parseDateRangeFromQuery(query);
+      const workbook = await this.reportsService.generatePaymentsReport(
+        dateRange ?? undefined,
+      );
+      const buffer = await workbook.xlsx.writeBuffer();
+      const suffix = dateRange ? dateRange.label : new Date().toISOString().split('T')[0];
+
+      res.setHeader(
+        'Content-Type',
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      );
+      res.setHeader(
+        'Content-Disposition',
+        `attachment; filename=payments-${suffix}.xlsx`,
+      );
+
+      return res.send(buffer);
+    } catch (error) {
+      throw new BadRequestException(
+        `Failed to generate payments report: ${error instanceof Error ? error.message : 'Unknown error'}`,
       );
     }
   }
@@ -250,11 +295,7 @@ export class ReportsController {
       const ExcelJS = await import('exceljs');
       const workbook = new ExcelJS.Workbook();
 
-      const dateRange = parseDateRange(
-        query.year,
-        query.month,
-        query.timeline,
-      );
+      const dateRange = parseDateRangeFromQuery(query);
       const selectedDatasets = parseDatasets(query.datasets);
       const datasetsToInclude: ReportDatasetId[] =
         selectedDatasets && selectedDatasets.length > 0
@@ -300,6 +341,13 @@ export class ReportsController {
       if (datasetsToInclude.includes('revenue')) {
         reportGenerators.push(() =>
           this.reportsService.generateRevenueReport(
+            dateRange ?? undefined,
+          ),
+        );
+      }
+      if (datasetsToInclude.includes('payments')) {
+        reportGenerators.push(() =>
+          this.reportsService.generatePaymentsReport(
             dateRange ?? undefined,
           ),
         );

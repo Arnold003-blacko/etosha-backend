@@ -790,4 +790,116 @@ export class ReportsService {
 
     return workbook;
   }
+
+  /**
+   * Generate Payments Report – all payments made in the selected period (from–to).
+   * Requires date range; filters by paidAt.
+   */
+  async generatePaymentsReport(
+    dateRange?: ReportDateRange,
+  ): Promise<ExcelJS.Workbook> {
+    const workbook = new ExcelJS.Workbook();
+    const worksheet = workbook.addWorksheet('Payments');
+
+    const now = new Date();
+    const startOfRange = dateRange?.start ?? new Date(now.getFullYear(), 0, 1);
+    const endOfRange = dateRange?.end ?? new Date(now.getFullYear(), 11, 31, 23, 59, 59);
+
+    const payments = await this.prisma.payment.findMany({
+      where: {
+        status: PaymentStatus.SUCCESS,
+        paidAt: {
+          gte: startOfRange,
+          lte: endOfRange,
+        },
+      },
+      include: {
+        purchase: {
+          include: {
+            product: {
+              select: {
+                title: true,
+                category: true,
+                pricingSection: true,
+              },
+            },
+            member: {
+              select: {
+                firstName: true,
+                lastName: true,
+                email: true,
+                phone: true,
+              },
+            },
+          },
+        },
+      },
+      orderBy: { paidAt: 'desc' },
+    });
+
+    worksheet.columns = [
+      { header: 'Payment ID', key: 'paymentId', width: 36 },
+      { header: 'Payment Date', key: 'paymentDate', width: 18 },
+      { header: 'Amount', key: 'amount', width: 15 },
+      { header: 'Method', key: 'method', width: 15 },
+      { header: 'Member Name', key: 'memberName', width: 25 },
+      { header: 'Email', key: 'email', width: 30 },
+      { header: 'Phone', key: 'phone', width: 15 },
+      { header: 'Product', key: 'product', width: 25 },
+      { header: 'Category', key: 'category', width: 15 },
+      { header: 'Section', key: 'section', width: 15 },
+      { header: 'Reference', key: 'reference', width: 30 },
+    ];
+
+    worksheet.getRow(1).font = { bold: true };
+    worksheet.getRow(1).fill = {
+      type: 'pattern',
+      pattern: 'solid',
+      fgColor: { argb: 'FF2196F3' },
+    };
+    worksheet.getRow(1).font = { bold: true, color: { argb: 'FFFFFFFF' } };
+
+    payments.forEach((payment) => {
+      worksheet.addRow({
+        paymentId: payment.id,
+        paymentDate: payment.paidAt
+          ? new Date(payment.paidAt).toISOString().split('T')[0]
+          : 'N/A',
+        amount: Number(payment.amount),
+        method: payment.method,
+        memberName: `${payment.purchase.member.firstName} ${payment.purchase.member.lastName}`,
+        email: payment.purchase.member.email,
+        phone: payment.purchase.member.phone ?? 'N/A',
+        product: payment.purchase.product.title,
+        category: payment.purchase.product.category,
+        section: payment.purchase.product.pricingSection || 'N/A',
+        reference: payment.reference,
+      });
+    });
+
+    const totalAmount = payments.reduce((sum, p) => sum + Number(p.amount), 0);
+    worksheet.addRow({
+      paymentId: 'TOTAL',
+      paymentDate: '',
+      amount: totalAmount,
+      method: '',
+      memberName: '',
+      email: '',
+      phone: '',
+      product: '',
+      category: '',
+      section: '',
+      reference: '',
+    });
+    const totalRow = worksheet.rowCount;
+    worksheet.getRow(totalRow).font = { bold: true };
+    worksheet.getRow(totalRow).fill = {
+      type: 'pattern',
+      pattern: 'solid',
+      fgColor: { argb: 'FFFFC000' },
+    };
+    worksheet.getColumn('amount').numFmt = '$#,##0.00';
+
+    return workbook;
+  }
 }

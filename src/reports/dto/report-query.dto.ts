@@ -42,6 +42,7 @@ export const REPORT_DATASET_IDS = [
   'section-revenue',
   'members',
   'revenue',
+  'payments',
 ] as const;
 
 export type ReportDatasetId = (typeof REPORT_DATASET_IDS)[number];
