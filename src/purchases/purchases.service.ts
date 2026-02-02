@@ -338,8 +338,15 @@ export class PurchasesService {
    * ===================================================== */
   async getMyPurchases(memberId: string) {
     // ✅ OPTIMIZED: Use select instead of include to fetch only needed fields
+    // Exclude cancelled purchases - they are stale and should not be shown to customers
     return this.prisma.purchase.findMany({
-      where: { memberId },
+      where: {
+        memberId,
+        // Exclude cancelled purchases - they are stale and not real purchases
+        status: {
+          not: PurchaseStatus.CANCELLED,
+        },
+      },
       select: {
         id: true,
         purchaseType: true,

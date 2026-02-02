@@ -52,6 +52,8 @@ export class PaymentsService {
       throw new ForbiddenException('Not your purchase');
     if (purchase.status === PurchaseStatus.PAID)
       throw new BadRequestException('Already paid');
+    if (purchase.status === PurchaseStatus.CANCELLED)
+      throw new BadRequestException('Purchase has been cancelled');
 
     const amount = Number(dto.amount);
     if (!amount || amount <= 0)
@@ -117,6 +119,8 @@ export class PaymentsService {
       throw new ForbiddenException('Not your purchase');
     if (purchase.status === PurchaseStatus.PAID)
       throw new BadRequestException('Already paid');
+    if (purchase.status === PurchaseStatus.CANCELLED)
+      throw new BadRequestException('Purchase has been cancelled');
 
     const payable = Number(amount);
     if (!payable || payable <= 0)
@@ -187,6 +191,8 @@ export class PaymentsService {
       throw new NotFoundException('Purchase not found');
     if (purchase.memberId !== memberId)
       throw new ForbiddenException('Not your purchase');
+    if (purchase.status === PurchaseStatus.CANCELLED)
+      throw new BadRequestException('Purchase has been cancelled');
 
     const payable = Number(amount);
     if (!payable || payable <= 0)
@@ -334,6 +340,16 @@ export class PaymentsService {
 
     if (!purchase) return;
 
+    // Don't process payment if purchase is cancelled
+    if (purchase.status === PurchaseStatus.CANCELLED) {
+      // Just mark payment as expired/failed
+      await this.prisma.payment.update({
+        where: { id: payment.id },
+        data: { status: PaymentStatus.EXPIRED },
+      });
+      return;
+    }
+
     const paid = Number(payment.amount);
     const now = new Date();
     const newBalance = Number(purchase.balance) - paid;
@@ -454,7 +470,15 @@ export class PaymentsService {
    * ===================================================== */
   async getMyPayments(memberId: string) {
     return this.prisma.payment.findMany({
-      where: { memberId },
+      where: {
+        memberId,
+        // Exclude payments from cancelled purchases - they are stale and should not be shown to customers
+        purchase: {
+          status: {
+            not: PurchaseStatus.CANCELLED,
+          },
+        },
+      },
       orderBy: { createdAt: 'desc' },
       select: {
         id: true,

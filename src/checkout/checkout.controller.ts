@@ -1,6 +1,7 @@
 import {
   Controller,
   Get,
+  Post,
   Param,
   Req,
   UseGuards,
@@ -10,6 +11,7 @@ import {
 } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { PrismaService } from '../prisma/prisma.service';
+import { CheckoutService } from './checkout.service';
 import {
   PurchaseStatus,
   PurchaseType,
@@ -34,7 +36,10 @@ function validateUUID(id: string, fieldName: string = 'ID'): void {
 @Controller('checkout')
 @UseGuards(JwtAuthGuard)
 export class CheckoutController {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly checkoutService: CheckoutService,
+  ) {}
 
   @Get(':purchaseId')
   async getCheckout(
@@ -91,6 +96,11 @@ export class CheckoutController {
       throw new ForbiddenException('Not your purchase');
     }
 
+    // Reject cancelled purchases - they are stale and should not be shown to customers
+    if (purchase.status === PurchaseStatus.CANCELLED) {
+      throw new NotFoundException('Purchase not found');
+    }
+
     const lastPaymentStatus =
       lastPayment?.status ?? PaymentStatus.INITIATED;
 
@@ -110,29 +120,6 @@ export class CheckoutController {
     if (purchase.product.category === ItemCategory.SERVICE) {
       isPaymentComplete =
         purchase.status === PurchaseStatus.PAID;
-    }
-
-    /* =====================================================
-       TERMINAL — CANCELLED
-    ===================================================== */
-
-    if (purchase.status === PurchaseStatus.CANCELLED) {
-      return {
-        purchaseId: purchase.id,
-        itemCategory: purchase.product.category, // ✅ ADDED
-        status: purchase.status,
-        redeemedAt: purchase.redeemedAt,
-        purchaseType: purchase.purchaseType,
-        section: purchase.product.title,
-        currency: purchase.product.currency,
-        planMonths: purchase.yearPlan?.months ?? null,
-        amountToPay: 0,
-        totalAmount: Number(purchase.totalAmount),
-        balance: Number(purchase.balance),
-        lastPaymentStatus,
-        lastPaymentId: lastPayment?.id ?? null,
-        isPaymentComplete,
-      };
     }
 
     /* =====================================================
@@ -210,5 +197,22 @@ export class CheckoutController {
       lastPaymentId: lastPayment?.id ?? null,
       isPaymentComplete,
     };
+  }
+
+  /* =====================================================
+   * CANCEL CHECKOUT SESSION
+   * =====================================================
+   * Called when user leaves/closes checkout
+   * Cancels pending payments and orphaned purchases
+   */
+  @Post(':purchaseId/cancel')
+  async cancelSession(
+    @Param('purchaseId') purchaseId: string,
+    @Req() req: any,
+  ) {
+    return this.checkoutService.cancelCheckoutSession(
+      purchaseId,
+      req.user.id,
+    );
   }
 }

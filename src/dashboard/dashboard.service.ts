@@ -20,12 +20,17 @@ export class DashboardService {
     const now = new Date();
     const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
     
-    // Get all successful payments (exclude legacy settlements)
+    // Get all successful payments (exclude legacy settlements and payments from cancelled purchases)
     const allPayments = await this.prisma.payment.aggregate({
       where: {
         status: PaymentStatus.SUCCESS,
         method: {
           not: 'LEGACY_SETTLEMENT',
+        },
+        purchase: {
+          status: {
+            not: PurchaseStatus.CANCELLED,
+          },
         },
       },
       _sum: {
@@ -36,7 +41,7 @@ export class DashboardService {
       },
     });
 
-    // Get today's successful payments (exclude legacy settlements)
+    // Get today's successful payments (exclude legacy settlements and payments from cancelled purchases)
     const todayPayments = await this.prisma.payment.aggregate({
       where: {
         status: PaymentStatus.SUCCESS,
@@ -45,6 +50,11 @@ export class DashboardService {
         },
         paidAt: {
           gte: startOfToday,
+        },
+        purchase: {
+          status: {
+            not: PurchaseStatus.CANCELLED,
+          },
         },
       },
       _sum: {
@@ -56,6 +66,7 @@ export class DashboardService {
     });
 
     // Get today's sales (purchases fully paid today: IMMEDIATE+PAID or FUTURE+PAID)
+    // Exclude cancelled purchases - they are stale and not real sales
     const todaySales = await this.prisma.purchase.aggregate({
       where: {
         status: PurchaseStatus.PAID,
@@ -64,6 +75,10 @@ export class DashboardService {
         },
         paidAt: {
           gte: startOfToday,
+        },
+        // Exclude cancelled purchases - they are stale
+        NOT: {
+          status: PurchaseStatus.CANCELLED,
         },
       },
       _sum: {
@@ -404,6 +419,11 @@ export class DashboardService {
                 gte: date,
                 lt: nextDate,
               },
+              purchase: {
+                status: {
+                  not: PurchaseStatus.CANCELLED,
+                },
+              },
             },
             _sum: {
               amount: true,
@@ -478,7 +498,7 @@ export class DashboardService {
       color: string;
     }> = [];
 
-    // Get recent successful payments (exclude legacy settlements)
+    // Get recent successful payments (exclude legacy settlements and payments from cancelled purchases)
     const recentPayments = await this.prisma.payment.findMany({
       where: {
         status: PaymentStatus.SUCCESS,
@@ -487,6 +507,11 @@ export class DashboardService {
         },
         paidAt: {
           not: null,
+        },
+        purchase: {
+          status: {
+            not: PurchaseStatus.CANCELLED,
+          },
         },
       },
       include: {
@@ -1012,7 +1037,7 @@ export class DashboardService {
     const endOfMonth = new Date(year, month, 0);
     endOfMonth.setHours(23, 59, 59, 999);
 
-    // Get all successful payments for the month (exclude legacy settlements)
+    // Get all successful payments for the month (exclude legacy settlements and payments from cancelled purchases)
     const payments = await this.prisma.payment.findMany({
       where: {
         status: PaymentStatus.SUCCESS,
@@ -1022,6 +1047,11 @@ export class DashboardService {
         paidAt: {
           gte: startOfMonth,
           lte: endOfMonth,
+        },
+        purchase: {
+          status: {
+            not: PurchaseStatus.CANCELLED,
+          },
         },
       },
       include: {

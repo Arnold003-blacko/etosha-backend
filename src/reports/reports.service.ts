@@ -23,12 +23,16 @@ export class ReportsService {
     const workbook = new ExcelJS.Workbook();
     const worksheet = workbook.addWorksheet('Debtors');
 
-    // Get all purchases with balance > 0
+    // Get all purchases with balance > 0 (exclude cancelled purchases)
     const purchases = await this.prisma.purchase.findMany({
       where: {
         balance: { gt: 0 },
         status: {
           in: [PurchaseStatus.PENDING_PAYMENT, PurchaseStatus.PARTIALLY_PAID],
+        },
+        // Exclude cancelled purchases - they are stale
+        NOT: {
+          status: PurchaseStatus.CANCELLED,
         },
       },
       include: {
@@ -148,6 +152,10 @@ export class ReportsService {
         },
         purchaseType: PurchaseType.FUTURE,
         yearPlanId: { not: null },
+        // Exclude cancelled purchases - they are stale and not real sales
+        NOT: {
+          status: PurchaseStatus.CANCELLED,
+        },
       },
       include: {
         member: {
@@ -239,6 +247,10 @@ export class ReportsService {
         purchaseType: PurchaseType.FUTURE,
         status: {
           in: [PurchaseStatus.PENDING_PAYMENT, PurchaseStatus.PARTIALLY_PAID],
+        },
+        // Exclude cancelled purchases - they are stale
+        NOT: {
+          status: PurchaseStatus.CANCELLED,
         },
       },
       include: {
@@ -483,6 +495,10 @@ export class ReportsService {
           lte: endOfRange,
         },
         status: PurchaseStatus.PAID,
+        // Exclude cancelled purchases - they are stale and not real sales
+        NOT: {
+          status: PurchaseStatus.CANCELLED,
+        },
         product: {
           category: ItemCategory.SERENITY_GROUND,
           pricingSection: { not: null },
@@ -697,6 +713,12 @@ export class ReportsService {
         paidAt: {
           gte: startOfRange,
           lte: endOfRange,
+        },
+        // Exclude payments from cancelled purchases - they are stale and not real revenue
+        purchase: {
+          status: {
+            not: PurchaseStatus.CANCELLED,
+          },
         },
       },
       include: {
