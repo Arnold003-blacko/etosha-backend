@@ -731,9 +731,21 @@ export class BurialsService {
    * Assign grave (site operations)
    */
   async assignGrave(dto: AssignGraveDto, staffId: string) {
-    return this.prisma.$transaction(async (tx) => {
-      return this.assignGraveInternal(dto, staffId, tx);
-    });
+    try {
+      return await this.prisma.$transaction(async (tx) => {
+        return await this.assignGraveInternal(dto, staffId, tx);
+      });
+    } catch (error) {
+      console.error('[BURIALS] Error assigning grave:', {
+        deceasedId: dto.deceasedId,
+        graveNumber: dto.graveNumber,
+        slotNo: dto.slotNo,
+        staffId,
+        error: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack : undefined,
+      });
+      throw error;
+    }
   }
 
   /**
@@ -773,12 +785,20 @@ export class BurialsService {
     // Get section from purchase product (for paid purchases) or use requested section (for waivers)
     let section: PricingSection;
     
+    console.log('[BURIALS] Determining section for deceased:', {
+      deceasedId: dto.deceasedId,
+      hasPurchase: !!deceased.purchaseId,
+      hasPurchaseProduct: !!deceased.purchase?.product,
+      pricingSection: deceased.purchase?.product?.pricingSection,
+      hasWaiver: !!deceased.waiver,
+    });
+    
     if (deceased.purchaseId && deceased.purchase?.product?.pricingSection) {
       // Section comes from the product that was purchased
       section = deceased.purchase.product.pricingSection;
+      console.log('[BURIALS] Using section from product:', section);
     } else if (deceased.waiver) {
-      // For waiver burials, we need to get section from assignment request or allow it to be specified
-      // For now, we'll require it to be in the assignment request or throw an error
+      // For waiver burials, we need to get section from assignment request
       const assignmentRequest = await tx.assignmentRequest.findFirst({
         where: {
           deceasedId: dto.deceasedId,
@@ -787,17 +807,39 @@ export class BurialsService {
         orderBy: { createdAt: 'desc' },
       });
 
+      console.log('[BURIALS] Waiver burial - assignment request:', {
+        found: !!assignmentRequest,
+        requestedSection: assignmentRequest?.requestedSection,
+      });
+
       if (!assignmentRequest || !assignmentRequest.requestedSection) {
         throw new BadRequestException(
-          'Section must be specified in assignment request for waiver burials',
+          'Section must be specified in assignment request for waiver burials. Please ensure the assignment request has a requestedSection.',
         );
       }
 
       section = assignmentRequest.requestedSection;
     } else {
-      throw new BadRequestException(
-        'Cannot determine section: purchase or waiver information missing',
-      );
+      // Try to get section from assignment request as fallback
+      const assignmentRequest = await tx.assignmentRequest.findFirst({
+        where: {
+          deceasedId: dto.deceasedId,
+        },
+        orderBy: { createdAt: 'desc' },
+      });
+
+      console.log('[BURIALS] Fallback - checking assignment request:', {
+        found: !!assignmentRequest,
+        requestedSection: assignmentRequest?.requestedSection,
+      });
+
+      if (assignmentRequest?.requestedSection) {
+        section = assignmentRequest.requestedSection;
+      } else {
+        throw new BadRequestException(
+          `Cannot determine section for deceased ${dto.deceasedId}. Purchase product pricing section is missing (product: ${deceased.purchase?.product?.id || 'N/A'}) and no assignment request with requestedSection found. Please ensure the product has a pricingSection or the assignment request has a requestedSection.`,
+        );
+      }
     }
 
     // Find or create grave
@@ -825,7 +867,11 @@ export class BurialsService {
           capacity: 2,
         },
         include: {
-          slots: true,
+          slots: {
+            include: {
+              deceased: true,
+            },
+          },
         },
       });
     }
