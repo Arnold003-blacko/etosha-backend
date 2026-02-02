@@ -23,10 +23,13 @@ export class DeceasedService {
   /**
    * ✅ SINGLE SOURCE OF TRUTH
    * Creating deceased ALWAYS redeems the purchase
+   * 
+   * @param tx Optional Prisma transaction client. If provided, uses that transaction instead of creating a new one.
    */
   async createAndRedeem(
     dto: CreateDeceasedDto,
     memberId: string,
+    tx?: any, // Prisma transaction client - using any to avoid complex type issues
   ) {
     console.log(
       `[DECEASED] 🔍 createAndRedeem called: purchaseId=${dto.purchaseId}, memberId=${memberId}`,
@@ -39,10 +42,10 @@ export class DeceasedService {
       throw new BadRequestException('Invalid Purchase ID: must be a valid UUID format');
     }
     
-    try {
-      const result = await this.prisma.$transaction(async (tx) => {
+    // Helper function to execute the logic
+    const executeLogic = async (transactionClient: typeof tx extends undefined ? PrismaService : NonNullable<typeof tx>) => {
       // 1️⃣ Load purchase
-      const purchase = await tx.purchase.findUnique({
+      const purchase = await transactionClient.purchase.findUnique({
         where: { id: dto.purchaseId },
         include: { deceased: true },
       });
@@ -84,7 +87,7 @@ export class DeceasedService {
       }
 
       // 6️⃣ Create deceased
-      const deceased = await tx.deceased.create({
+      const deceased = await transactionClient.deceased.create({
         data: {
           purchaseId: purchase.id,
           fullName: dto.fullName,
@@ -102,7 +105,7 @@ export class DeceasedService {
       });
 
       // 7️⃣ Create BurialNextOfKin immediately after deceased (required: every deceased has one next of kin)
-      await tx.burialNextOfKin.create({
+      await transactionClient.burialNextOfKin.create({
         data: {
           deceasedId: deceased.id,
           fullName: dto.nextOfKin.fullName,
@@ -115,7 +118,7 @@ export class DeceasedService {
       });
 
       // 8️⃣ Redeem purchase (ATOMIC)
-      await tx.purchase.update({
+      await transactionClient.purchase.update({
         where: { id: purchase.id },
         data: {
           redeemedAt: new Date(),
@@ -123,16 +126,31 @@ export class DeceasedService {
         },
       });
 
-      // Emit real-time update (after transaction completes)
-      this.dashboardGateway.broadcastDashboardUpdate();
+      console.log(
+        `[DECEASED] ✅ Successfully created deceased ${deceased.id} and next of kin for purchase ${dto.purchaseId}`,
+      );
+      return deceased;
+    };
 
-        console.log(
-          `[DECEASED] ✅ Successfully created deceased ${deceased.id} and next of kin for purchase ${dto.purchaseId}`,
-        );
-        return deceased;
-      });
+    try {
+      let result;
       
-      console.log(`[DECEASED] Transaction completed successfully`);
+      // If transaction client is provided, use it directly (for nested transactions)
+      if (tx) {
+        console.log(`[DECEASED] Using provided transaction client`);
+        result = await executeLogic(tx);
+      } else {
+        // Otherwise, create a new transaction
+        console.log(`[DECEASED] Creating new transaction`);
+        result = await this.prisma.$transaction(async (transactionClient) => {
+          return await executeLogic(transactionClient);
+        });
+        
+        // Emit real-time update only after transaction completes (not for nested transactions)
+        this.dashboardGateway.broadcastDashboardUpdate();
+        console.log(`[DECEASED] Transaction completed successfully`);
+      }
+      
       return result;
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
