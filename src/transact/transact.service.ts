@@ -1298,7 +1298,6 @@ export class TransactService {
         } as CreateDeceasedDto,
         memberId,
         undefined, // No transaction client (will create its own)
-        staffUserId, // Pass staff ID to auto-create assignment request
       );
 
       // Remove from pending map (records now saved to database)
