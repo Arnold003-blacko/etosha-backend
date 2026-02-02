@@ -438,7 +438,7 @@ model AssignmentRequest {
   requestedSection PricingSection?
   status           AssignmentRequestStatus @default(PENDING)
 
-  requestedBy String // Staff ID
+  requestedBy String? // Staff ID (nullable for auto-generated requests from member purchases)
   assignedBy  String? // Staff ID (site operations)
   assignedAt  DateTime?
 

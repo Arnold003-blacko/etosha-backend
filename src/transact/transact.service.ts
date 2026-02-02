@@ -1286,6 +1286,7 @@ export class TransactService {
 
       // Create deceased record with next of kin (this also redeems the purchase)
       // Next of kin is tied to deceased via BurialNextOfKin, not to member
+      // Pass staffUserId to automatically create assignment request
       const deceased = await this.deceasedService.createAndRedeem(
         {
           ...deceasedDetails,
@@ -1296,6 +1297,8 @@ export class TransactService {
           },
         } as CreateDeceasedDto,
         memberId,
+        undefined, // No transaction client (will create its own)
+        staffUserId, // Pass staff ID to auto-create assignment request
       );
 
       // Remove from pending map (records now saved to database)

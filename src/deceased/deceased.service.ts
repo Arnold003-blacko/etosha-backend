@@ -9,7 +9,7 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateDeceasedDto } from './dto/create-deceased.dto';
-import { PurchaseStatus } from '@prisma/client';
+import { PurchaseStatus, BurialStatus, AssignmentRequestStatus } from '@prisma/client';
 import { DashboardGateway } from '../dashboard/dashboard.gateway';
 
 @Injectable()
@@ -127,6 +127,51 @@ export class DeceasedService {
         },
       });
 
+      // 9️⃣ Automatically create assignment request for immediate burials
+      // Create assignment request for all immediate burials (whether created by staff or member)
+      // Only create if no graveSlot exists and not pending waiver
+      const deceasedWithStatus = await transactionClient.deceased.findUnique({
+        where: { id: deceased.id },
+        include: { 
+          graveSlot: true, 
+          waiver: true,
+          assignmentRequests: {
+            where: { status: AssignmentRequestStatus.PENDING },
+            take: 1,
+          },
+        },
+      });
+
+      const hasPendingAssignment = deceasedWithStatus?.assignmentRequests && deceasedWithStatus.assignmentRequests.length > 0;
+
+      if (!deceasedWithStatus?.graveSlot && 
+          deceasedWithStatus?.status !== BurialStatus.PENDING_WAIVER_APPROVAL &&
+          !hasPendingAssignment) {
+        // Get the product's pricing section for the assignment request
+        const purchaseWithProduct = await transactionClient.purchase.findUnique({
+          where: { id: purchase.id },
+          include: { product: { select: { pricingSection: true } } },
+        });
+
+        await transactionClient.assignmentRequest.create({
+          data: {
+            deceasedId: deceased.id,
+            requestedSection: purchaseWithProduct?.product?.pricingSection || null,
+            status: AssignmentRequestStatus.PENDING,
+            requestedBy: null, // null for member-created immediate burials
+            notes: `Auto-created when immediate burial was created`,
+          },
+        });
+
+        console.log(
+          `[DECEASED] ✅ Automatically created assignment request for deceased ${deceased.id} (immediate burial)`,
+        );
+      } else {
+        console.log(
+          `[DECEASED] ⚠️ Skipping assignment request creation: graveSlot exists=${!!deceasedWithStatus?.graveSlot}, status=${deceasedWithStatus?.status}, hasPendingAssignment=${hasPendingAssignment}`,
+        );
+      }
+
       console.log(
         `[DECEASED] ✅ Successfully created deceased ${deceased.id} and next of kin for purchase ${dto.purchaseId}`,
       );
@@ -230,6 +275,51 @@ export class DeceasedService {
                 redeemedByMemberId: memberId,
               },
             });
+
+            // 9️⃣ Automatically create assignment request for immediate burials
+            // Create assignment request for all immediate burials (whether created by staff or member)
+            // Only create if no graveSlot exists and not pending waiver
+            const deceasedWithStatus = await tx.deceased.findUnique({
+              where: { id: deceased.id },
+              include: { 
+                graveSlot: true, 
+                waiver: true,
+                assignmentRequests: {
+                  where: { status: AssignmentRequestStatus.PENDING },
+                  take: 1,
+                },
+              },
+            });
+
+            const hasPendingAssignment = deceasedWithStatus?.assignmentRequests && deceasedWithStatus.assignmentRequests.length > 0;
+
+            if (!deceasedWithStatus?.graveSlot && 
+                deceasedWithStatus?.status !== BurialStatus.PENDING_WAIVER_APPROVAL &&
+                !hasPendingAssignment) {
+              // Get the product's pricing section for the assignment request
+              const purchaseWithProduct = await tx.purchase.findUnique({
+                where: { id: purchase.id },
+                include: { product: { select: { pricingSection: true } } },
+              });
+
+              await tx.assignmentRequest.create({
+                data: {
+                  deceasedId: deceased.id,
+                  requestedSection: purchaseWithProduct?.product?.pricingSection || null,
+                  status: AssignmentRequestStatus.PENDING,
+                  requestedBy: null, // null for member-created immediate burials
+                  notes: `Auto-created when immediate burial was created`,
+                },
+              });
+
+              console.log(
+                `[DECEASED] ✅ Automatically created assignment request for deceased ${deceased.id} (immediate burial)`,
+              );
+            } else {
+              console.log(
+                `[DECEASED] ⚠️ Skipping assignment request creation: graveSlot exists=${!!deceasedWithStatus?.graveSlot}, status=${deceasedWithStatus?.status}, hasPendingAssignment=${hasPendingAssignment}`,
+              );
+            }
 
             console.log(
               `[DECEASED] ✅ Successfully created deceased ${deceased.id} and next of kin for purchase ${dto.purchaseId}`,
