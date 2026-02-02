@@ -650,6 +650,7 @@ export class BurialsService {
 
   /**
    * Get assignment requests queue
+   * Optimized to only fetch essential fields for better performance
    */
   async getAssignmentRequests(status?: AssignmentRequestStatus) {
     const where: any = {};
@@ -657,14 +658,33 @@ export class BurialsService {
       where.status = status;
     }
 
+    // Use select instead of include for better performance
+    // Limit to 100 records to prevent slow queries
     return this.prisma.assignmentRequest.findMany({
       where,
-      include: {
+      take: 100, // Limit results to prevent slow queries
+      select: {
+        id: true,
+        deceasedId: true,
+        requestedSection: true,
+        status: true,
+        requestedBy: true,
+        assignedBy: true,
+        assignedAt: true,
+        notes: true,
+        createdAt: true,
+        updatedAt: true,
         deceased: {
-          include: {
+          select: {
+            id: true,
+            fullName: true,
+            dateOfDeath: true,
+            expectedBurial: true,
+            status: true,
             purchase: {
-              include: {
-                member: true,
+              select: {
+                id: true,
+                purchaseType: true,
                 product: {
                   select: {
                     id: true,
@@ -673,10 +693,33 @@ export class BurialsService {
                     amount: true,
                   },
                 },
+                member: {
+                  select: {
+                    id: true,
+                    firstName: true,
+                    lastName: true,
+                    email: true,
+                    phone: true,
+                  },
+                },
               },
             },
-            waiver: true,
-            nextOfKin: true,
+            waiver: {
+              select: {
+                id: true,
+                waiverType: true,
+                status: true,
+              },
+            },
+            nextOfKin: {
+              select: {
+                id: true,
+                fullName: true,
+                relationship: true,
+                phone: true,
+                email: true,
+              },
+            },
           },
         },
       },
