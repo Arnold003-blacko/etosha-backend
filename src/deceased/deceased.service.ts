@@ -42,7 +42,7 @@ export class DeceasedService {
       throw new BadRequestException('Invalid Purchase ID: must be a valid UUID format');
     }
     
-    // Helper function to execute the logic
+    // Helper function to execute the logic - ALL operations must complete before transaction closes
     const executeLogic = async (transactionClient: typeof tx extends undefined ? PrismaService : NonNullable<typeof tx>) => {
       // 1️⃣ Load purchase
       const purchase = await transactionClient.purchase.findUnique({
@@ -86,6 +86,7 @@ export class DeceasedService {
         );
       }
 
+      // Execute all database operations in sequence - ensure all complete before transaction closes
       // 6️⃣ Create deceased
       const deceased = await transactionClient.deceased.create({
         data: {
@@ -105,7 +106,7 @@ export class DeceasedService {
       });
 
       // 7️⃣ Create BurialNextOfKin immediately after deceased (required: every deceased has one next of kin)
-      await transactionClient.burialNextOfKin.create({
+      const nextOfKin = await transactionClient.burialNextOfKin.create({
         data: {
           deceasedId: deceased.id,
           fullName: dto.nextOfKin.fullName,
@@ -117,8 +118,8 @@ export class DeceasedService {
         },
       });
 
-      // 8️⃣ Redeem purchase (ATOMIC)
-      await transactionClient.purchase.update({
+      // 8️⃣ Redeem purchase (ATOMIC) - CRITICAL: This must complete before transaction closes
+      const updatedPurchase = await transactionClient.purchase.update({
         where: { id: purchase.id },
         data: {
           redeemedAt: new Date(),
@@ -129,6 +130,8 @@ export class DeceasedService {
       console.log(
         `[DECEASED] ✅ Successfully created deceased ${deceased.id} and next of kin for purchase ${dto.purchaseId}`,
       );
+      
+      // Return deceased - transaction will commit after this returns
       return deceased;
     };
 
@@ -141,10 +144,105 @@ export class DeceasedService {
         result = await executeLogic(tx);
       } else {
         // Otherwise, create a new transaction
+        // IMPORTANT: All operations must complete before transaction callback returns
+        // Inline all operations to avoid async timing issues
         console.log(`[DECEASED] Creating new transaction`);
-        result = await this.prisma.$transaction(async (transactionClient) => {
-          return await executeLogic(transactionClient);
-        });
+        result = await this.prisma.$transaction(
+          async (tx) => {
+            // 1️⃣ Load purchase
+            const purchase = await tx.purchase.findUnique({
+              where: { id: dto.purchaseId },
+              include: { deceased: true },
+            });
+
+            if (!purchase) {
+              throw new NotFoundException('Purchase not found');
+            }
+
+            // 2️⃣ Ownership check
+            if (purchase.memberId !== memberId) {
+              throw new ForbiddenException('Not your purchase');
+            }
+
+            // 3️⃣ Must be PAID
+            if (purchase.status !== PurchaseStatus.PAID) {
+              throw new ForbiddenException(
+                'Purchase must be paid before saving deceased details',
+              );
+            }
+
+            // 4️⃣ Check if already redeemed (prevent double redemption)
+            if (purchase.deceased) {
+              throw new BadRequestException(
+                'This purchase has already been redeemed. Each purchase can only be redeemed once.'
+              );
+            }
+
+            if (purchase.redeemedAt) {
+              throw new BadRequestException(
+                'This purchase has already been redeemed. Each purchase can only be redeemed once.'
+              );
+            }
+
+            // 5️⃣ Require next of kin
+            if (!dto.nextOfKin) {
+              throw new BadRequestException(
+                'Next of kin details are required. You cannot save a deceased without their next of kin.',
+              );
+            }
+
+            // 6️⃣ Create deceased
+            const deceased = await tx.deceased.create({
+              data: {
+                purchaseId: purchase.id,
+                fullName: dto.fullName,
+                dateOfBirth: new Date(dto.dateOfBirth),
+                gender: dto.gender,
+                address: dto.address,
+                relationship: dto.relationship,
+                causeOfDeath: dto.causeOfDeath,
+                funeralParlor: dto.funeralParlor,
+                dateOfDeath: new Date(dto.dateOfDeath),
+                expectedBurial: dto.expectedBurial
+                  ? new Date(dto.expectedBurial)
+                  : null,
+              },
+            });
+
+            // 7️⃣ Create BurialNextOfKin
+            await tx.burialNextOfKin.create({
+              data: {
+                deceasedId: deceased.id,
+                fullName: dto.nextOfKin.fullName,
+                relationship: dto.nextOfKin.relationship,
+                phone: dto.nextOfKin.phone,
+                email: dto.nextOfKin.email || null,
+                address: dto.nextOfKin.address,
+                isBuyer: dto.nextOfKin.isBuyer || false,
+              },
+            });
+
+            // 8️⃣ Redeem purchase (ATOMIC) - CRITICAL: This must complete before transaction closes
+            await tx.purchase.update({
+              where: { id: purchase.id },
+              data: {
+                redeemedAt: new Date(),
+                redeemedByMemberId: memberId,
+              },
+            });
+
+            console.log(
+              `[DECEASED] ✅ Successfully created deceased ${deceased.id} and next of kin for purchase ${dto.purchaseId}`,
+            );
+
+            return deceased;
+          },
+          {
+            // Increase timeout to 30 seconds to handle slow operations
+            maxWait: 30000, // Maximum time to wait for a transaction slot
+            timeout: 30000, // Maximum time the transaction can run
+          },
+        );
         
         // Emit real-time update only after transaction completes (not for nested transactions)
         this.dashboardGateway.broadcastDashboardUpdate();
