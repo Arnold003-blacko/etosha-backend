@@ -732,9 +732,15 @@ export class BurialsService {
    */
   async assignGrave(dto: AssignGraveDto, staffId: string) {
     try {
-      return await this.prisma.$transaction(async (tx) => {
-        return await this.assignGraveInternal(dto, staffId, tx);
-      });
+      return await this.prisma.$transaction(
+        async (tx) => {
+          return await this.assignGraveInternal(dto, staffId, tx);
+        },
+        {
+          maxWait: 10000, // Maximum time to wait for a transaction slot (10 seconds)
+          timeout: 30000, // Maximum time the transaction can run (30 seconds)
+        },
+      );
     } catch (error) {
       console.error('[BURIALS] Error assigning grave:', {
         deceasedId: dto.deceasedId,
@@ -756,16 +762,31 @@ export class BurialsService {
     staffId: string,
     tx: any,
   ) {
+    // Fetch deceased with only necessary fields for better performance
     const deceased = await tx.deceased.findUnique({
       where: { id: dto.deceasedId },
       include: {
-        graveSlot: true,
-        purchase: {
-          include: {
-            product: true,
+        graveSlot: {
+          select: {
+            id: true,
           },
         },
-        waiver: true,
+        purchase: {
+          include: {
+            product: {
+              select: {
+                id: true,
+                pricingSection: true,
+              },
+            },
+          },
+        },
+        waiver: {
+          select: {
+            id: true,
+            status: true,
+          },
+        },
       },
     });
 
@@ -853,7 +874,11 @@ export class BurialsService {
       include: {
         slots: {
           include: {
-            deceased: true,
+            deceased: {
+              select: {
+                id: true, // Only select id to check if slot is occupied
+              },
+            },
           },
         },
       },
@@ -869,7 +894,11 @@ export class BurialsService {
         include: {
           slots: {
             include: {
-              deceased: true,
+              deceased: {
+                select: {
+                  id: true,
+                },
+              },
             },
           },
         },
