@@ -68,6 +68,63 @@ export class DashboardController {
   }
 
   /* ============================
+   * GET SALES ANALYTICS
+   * ============================ */
+  @Get('sales')
+  getSalesAnalytics(
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+  ) {
+    const dateRange =
+      from && to
+        ? {
+            from: new Date(from),
+            to: new Date(to),
+          }
+        : undefined;
+
+    if (dateRange && (isNaN(dateRange.from.getTime()) || isNaN(dateRange.to.getTime()))) {
+      throw new BadRequestException('Invalid date range');
+    }
+
+    return this.dashboardService.getSalesAnalytics(dateRange);
+  }
+
+  /* ============================
+   * GET SALES LIST (PAGINATED)
+   * ============================ */
+  @Get('sales/list')
+  getSalesList(
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+    @Query('section') section?: string,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+  ) {
+    const pageNum = page ? parseInt(page, 10) : 1;
+    const limitNum = limit ? parseInt(limit, 10) : 50;
+
+    const dateRange =
+      from && to
+        ? {
+            from: new Date(from),
+            to: new Date(to),
+          }
+        : undefined;
+
+    if (dateRange && (isNaN(dateRange.from.getTime()) || isNaN(dateRange.to.getTime()))) {
+      throw new BadRequestException('Invalid date range');
+    }
+
+    return this.dashboardService.getSalesList({
+      ...dateRange,
+      section,
+      page: pageNum,
+      limit: limitNum,
+    });
+  }
+
+  /* ============================
    * GET MEMBER FINANCIAL STATEMENT (ADMIN)
    * ============================ */
   @Get('accounts/statement')

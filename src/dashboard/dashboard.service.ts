@@ -706,14 +706,14 @@ export class DashboardService {
     currentMonth.setHours(0, 0, 0, 0);
 
     // Get all purchases with installment plans and balance > 0
+    // Only include PARTIALLY_PAID purchases (exclude PENDING_PAYMENT and CANCELLED)
+    // PENDING_PAYMENT purchases haven't started payments yet, so they're not debtors
     const purchases = await this.prisma.purchase.findMany({
       where: {
         balance: { gt: 0 },
         yearPlanId: { not: null },
         purchaseType: PurchaseType.FUTURE,
-        status: {
-          in: [PurchaseStatus.PENDING_PAYMENT, PurchaseStatus.PARTIALLY_PAID],
-        },
+        status: PurchaseStatus.PARTIALLY_PAID, // Only show purchases that have started payments
       },
       include: {
         member: {
@@ -1178,6 +1178,397 @@ export class DashboardService {
       },
       netIncome,
       generatedAt: new Date().toISOString(),
+    };
+  }
+
+  /* =====================================================
+   * GET SALES ANALYTICS
+   * Returns comprehensive sales analytics including summary metrics,
+   * section breakdowns, and graves sold information
+   * ===================================================== */
+  async getSalesAnalytics(dateRange?: { from: Date; to: Date }) {
+    const now = new Date();
+    const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const startOfWeek = new Date(now);
+    const dayOfWeek = now.getDay();
+    const daysFromMonday = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
+    startOfWeek.setDate(now.getDate() - daysFromMonday);
+    startOfWeek.setHours(0, 0, 0, 0);
+    
+    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+    startOfMonth.setHours(0, 0, 0, 0);
+
+    // Helper function to get sales metrics for a date range
+    const getSalesMetrics = async (start: Date, end: Date) => {
+      const [sales, gravesSold] = await Promise.all([
+        this.prisma.purchase.aggregate({
+          where: {
+            status: PurchaseStatus.PAID,
+            purchaseType: {
+              in: [PurchaseType.IMMEDIATE, PurchaseType.FUTURE],
+            },
+            paidAt: {
+              gte: start,
+              lte: end,
+            },
+            NOT: {
+              status: PurchaseStatus.CANCELLED,
+            },
+          },
+          _sum: {
+            totalAmount: true,
+          },
+          _count: {
+            id: true,
+          },
+        }),
+        this.prisma.graveSlot.count({
+          where: {
+            purchaseId: { not: null },
+            createdAt: {
+              gte: start,
+              lte: end,
+            },
+          },
+        }),
+      ]);
+
+      return {
+        amount: Number(sales._sum.totalAmount || 0),
+        count: sales._count.id || 0,
+        gravesSold: gravesSold,
+      };
+    };
+
+    // Get metrics for different periods
+    const [today, thisWeek, thisMonth, customRange] = await Promise.all([
+      getSalesMetrics(startOfToday, now),
+      getSalesMetrics(startOfWeek, now),
+      getSalesMetrics(startOfMonth, now),
+      dateRange ? getSalesMetrics(dateRange.from, dateRange.to) : Promise.resolve(null),
+    ]);
+
+    // Get section breakdown for the selected period (or this month if no range)
+    const sectionBreakdownStart = dateRange ? dateRange.from : startOfMonth;
+    const sectionBreakdownEnd = dateRange ? dateRange.to : now;
+
+    const purchasesForBreakdown = await this.prisma.purchase.findMany({
+      where: {
+        status: PurchaseStatus.PAID,
+        purchaseType: {
+          in: [PurchaseType.IMMEDIATE, PurchaseType.FUTURE],
+        },
+        paidAt: {
+          gte: sectionBreakdownStart,
+          lte: sectionBreakdownEnd,
+        },
+        NOT: {
+          status: PurchaseStatus.CANCELLED,
+        },
+        product: {
+          pricingSection: { not: null },
+          category: 'SERENITY_GROUND',
+        },
+      },
+      include: {
+        product: {
+          select: {
+            pricingSection: true,
+            title: true,
+          },
+        },
+      },
+    });
+
+    // Group by section
+    const sectionBreakdown = purchasesForBreakdown.reduce((acc, purchase) => {
+      const section = purchase.product.pricingSection || 'UNKNOWN';
+      if (!acc[section]) {
+        acc[section] = { section, revenue: 0, count: 0 };
+      }
+      acc[section].revenue += Number(purchase.totalAmount);
+      acc[section].count += 1;
+      return acc;
+    }, {} as Record<string, { section: string; revenue: number; count: number }>);
+
+    // Get recent sales (last 10)
+    const recentSales = await this.prisma.purchase.findMany({
+      where: {
+        status: PurchaseStatus.PAID,
+        purchaseType: {
+          in: [PurchaseType.IMMEDIATE, PurchaseType.FUTURE],
+        },
+        NOT: {
+          status: PurchaseStatus.CANCELLED,
+        },
+      },
+      include: {
+        member: {
+          select: {
+            firstName: true,
+            lastName: true,
+            email: true,
+            phone: true,
+          },
+        },
+        product: {
+          select: {
+            title: true,
+            pricingSection: true,
+          },
+        },
+        graveSlot: {
+          select: {
+            grave: {
+              select: {
+                graveNumber: true,
+                section: true,
+              },
+            },
+            slotNo: true,
+          },
+        },
+      },
+      orderBy: { paidAt: 'desc' },
+      take: 10,
+    });
+
+    // Get graves sold details for the selected period
+    const gravesSoldStart = dateRange ? dateRange.from : startOfMonth;
+    const gravesSoldEnd = dateRange ? dateRange.to : now;
+
+    const gravesSold = await this.prisma.graveSlot.findMany({
+      where: {
+        purchaseId: { not: null },
+        createdAt: {
+          gte: gravesSoldStart,
+          lte: gravesSoldEnd,
+        },
+      },
+      include: {
+        grave: true,
+        purchase: {
+          include: {
+            member: {
+              select: {
+                firstName: true,
+                lastName: true,
+                email: true,
+                phone: true,
+              },
+            },
+            product: {
+              select: {
+                title: true,
+                pricingSection: true,
+              },
+            },
+          },
+        },
+        deceased: {
+          select: {
+            fullName: true,
+            dateOfDeath: true,
+            burialDate: true,
+          },
+        },
+      },
+      orderBy: { createdAt: 'desc' },
+      take: 50, // Limit to recent 50 graves sold
+    });
+
+    return {
+      summary: {
+        today,
+        thisWeek,
+        thisMonth,
+        ...(customRange && { customRange }),
+      },
+      sectionBreakdown: Object.values(sectionBreakdown),
+      recentSales: recentSales.map((p) => ({
+        id: p.id,
+        totalAmount: Number(p.totalAmount),
+        paidAt: p.paidAt,
+        createdAt: p.createdAt,
+        member: {
+          name: `${p.member.firstName} ${p.member.lastName}`,
+          email: p.member.email,
+          phone: p.member.phone,
+        },
+        product: {
+          title: p.product.title,
+          section: p.product.pricingSection,
+        },
+        grave: p.graveSlot?.[0]
+          ? {
+              graveNumber: p.graveSlot[0].grave.graveNumber,
+              section: p.graveSlot[0].grave.section,
+              slotNo: p.graveSlot[0].slotNo,
+            }
+          : null,
+      })),
+      gravesSold: gravesSold.map((slot) => ({
+        id: slot.id,
+        graveNumber: slot.grave.graveNumber,
+        section: slot.grave.section,
+        slotNo: slot.slotNo,
+        purchaseId: slot.purchaseId,
+        member: slot.purchase
+          ? {
+              name: `${slot.purchase.member.firstName} ${slot.purchase.member.lastName}`,
+              email: slot.purchase.member.email,
+              phone: slot.purchase.member.phone,
+            }
+          : null,
+        product: slot.purchase?.product
+          ? {
+              title: slot.purchase.product.title,
+              section: slot.purchase.product.pricingSection,
+            }
+          : null,
+        amount: slot.priceAtPurchase ? Number(slot.priceAtPurchase) : slot.purchase ? Number(slot.purchase.totalAmount) : 0,
+        soldDate: slot.createdAt,
+        deceased: slot.deceased
+          ? {
+              fullName: slot.deceased.fullName,
+              dateOfDeath: slot.deceased.dateOfDeath,
+              burialDate: slot.deceased.burialDate,
+            }
+          : null,
+      })),
+    };
+  }
+
+  /* =====================================================
+   * GET SALES LIST (PAGINATED)
+   * Returns paginated list of sales with optional filters
+   * ===================================================== */
+  async getSalesList(params: {
+    from?: Date;
+    to?: Date;
+    section?: string;
+    page?: number;
+    limit?: number;
+  }) {
+    const page = params.page || 1;
+    const limit = params.limit || 50;
+    const skip = (page - 1) * limit;
+
+    const where: any = {
+      status: PurchaseStatus.PAID,
+      purchaseType: {
+        in: [PurchaseType.IMMEDIATE, PurchaseType.FUTURE],
+      },
+      NOT: {
+        status: PurchaseStatus.CANCELLED,
+      },
+    };
+
+    if (params.from || params.to) {
+      where.paidAt = {};
+      if (params.from) {
+        where.paidAt.gte = params.from;
+      }
+      if (params.to) {
+        where.paidAt.lte = params.to;
+      }
+    }
+
+    if (params.section) {
+      where.product = {
+        pricingSection: params.section,
+      };
+    }
+
+    const [purchases, total] = await Promise.all([
+      this.prisma.purchase.findMany({
+        where,
+        include: {
+          member: {
+            select: {
+              firstName: true,
+              lastName: true,
+              email: true,
+              phone: true,
+            },
+          },
+          product: {
+            select: {
+              title: true,
+              pricingSection: true,
+              category: true,
+            },
+          },
+          graveSlot: {
+            select: {
+              grave: {
+                select: {
+                  graveNumber: true,
+                  section: true,
+                },
+              },
+              slotNo: true,
+            },
+          },
+          payments: {
+            where: {
+              status: PaymentStatus.SUCCESS,
+            },
+            select: {
+              amount: true,
+              method: true,
+              paidAt: true,
+            },
+            orderBy: { paidAt: 'desc' },
+            take: 1,
+          },
+        },
+        orderBy: { paidAt: 'desc' },
+        skip,
+        take: limit,
+      }),
+      this.prisma.purchase.count({ where }),
+    ]);
+
+    return {
+      sales: purchases.map((p) => ({
+        id: p.id,
+        totalAmount: Number(p.totalAmount),
+        paidAmount: Number(p.paidAmount),
+        paidAt: p.paidAt,
+        createdAt: p.createdAt,
+        member: {
+          id: p.memberId,
+          name: `${p.member.firstName} ${p.member.lastName}`,
+          email: p.member.email,
+          phone: p.member.phone,
+        },
+        product: {
+          title: p.product.title,
+          section: p.product.pricingSection,
+          category: p.product.category,
+        },
+        grave: p.graveSlot?.[0]
+          ? {
+              graveNumber: p.graveSlot[0].grave.graveNumber,
+              section: p.graveSlot[0].grave.section,
+              slotNo: p.graveSlot[0].slotNo,
+            }
+          : null,
+        lastPayment: p.payments[0]
+          ? {
+              amount: Number(p.payments[0].amount),
+              method: p.payments[0].method,
+              paidAt: p.payments[0].paidAt,
+            }
+          : null,
+      })),
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages: Math.ceil(total / limit),
+      },
     };
   }
 }
