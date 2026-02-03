@@ -1377,12 +1377,289 @@ export class DashboardService {
       take: 50, // Limit to recent 50 graves sold
     });
 
+    // Calculate KPIs for the selected period (or this month if no range)
+    const kpiPeriodStart = dateRange ? dateRange.from : startOfMonth;
+    const kpiPeriodEnd = dateRange ? dateRange.to : now;
+    const kpiMetrics = dateRange && customRange ? customRange : thisMonth;
+    
+    // Calculate simple KPIs
+    const averageSaleValue = kpiMetrics && kpiMetrics.count > 0 
+      ? kpiMetrics.amount / kpiMetrics.count 
+      : 0;
+    
+    // Calculate previous period for growth comparison
+    let previousPeriod: { revenue: number; count: number; gravesSold: number; period: string } | null = null;
+    let revenueGrowth = 0;
+    let salesCountGrowth = 0;
+    let gravesSoldGrowth = 0;
+    
+    if (dateRange) {
+      // Custom range: calculate same length period before
+      const periodLength = dateRange.to.getTime() - dateRange.from.getTime();
+      const previousStart = new Date(dateRange.from.getTime() - periodLength);
+      const previousEnd = dateRange.from;
+      const previousMetrics = await getSalesMetrics(previousStart, previousEnd);
+      
+      previousPeriod = {
+        revenue: previousMetrics.amount,
+        count: previousMetrics.count,
+        gravesSold: previousMetrics.gravesSold,
+        period: `${previousStart.toLocaleDateString()} - ${previousEnd.toLocaleDateString()}`,
+      };
+      
+      // Calculate growth percentages
+      if (previousMetrics.amount > 0) {
+        revenueGrowth = ((kpiMetrics.amount - previousMetrics.amount) / previousMetrics.amount) * 100;
+      } else if (kpiMetrics.amount > 0) {
+        revenueGrowth = 100; // Infinite growth from zero
+      }
+      
+      if (previousMetrics.count > 0) {
+        salesCountGrowth = ((kpiMetrics.count - previousMetrics.count) / previousMetrics.count) * 100;
+      } else if (kpiMetrics.count > 0) {
+        salesCountGrowth = 100;
+      }
+      
+      if (previousMetrics.gravesSold > 0) {
+        gravesSoldGrowth = ((kpiMetrics.gravesSold - previousMetrics.gravesSold) / previousMetrics.gravesSold) * 100;
+      } else if (kpiMetrics.gravesSold > 0) {
+        gravesSoldGrowth = 100;
+      }
+    } else {
+      // Compare this month to last month
+      const lastMonthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+      lastMonthStart.setHours(0, 0, 0, 0);
+      const lastMonthEnd = new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59);
+      const lastMonthMetrics = await getSalesMetrics(lastMonthStart, lastMonthEnd);
+      
+      previousPeriod = {
+        revenue: lastMonthMetrics.amount,
+        count: lastMonthMetrics.count,
+        gravesSold: lastMonthMetrics.gravesSold,
+        period: 'Last Month',
+      };
+      
+      if (lastMonthMetrics.amount > 0) {
+        revenueGrowth = ((thisMonth.amount - lastMonthMetrics.amount) / lastMonthMetrics.amount) * 100;
+      } else if (thisMonth.amount > 0) {
+        revenueGrowth = 100;
+      }
+      
+      if (lastMonthMetrics.count > 0) {
+        salesCountGrowth = ((thisMonth.count - lastMonthMetrics.count) / lastMonthMetrics.count) * 100;
+      } else if (thisMonth.count > 0) {
+        salesCountGrowth = 100;
+      }
+      
+      if (lastMonthMetrics.gravesSold > 0) {
+        gravesSoldGrowth = ((thisMonth.gravesSold - lastMonthMetrics.gravesSold) / lastMonthMetrics.gravesSold) * 100;
+      } else if (thisMonth.gravesSold > 0) {
+        gravesSoldGrowth = 100;
+      }
+    }
+    
+    // Get sales by type (IMMEDIATE vs FUTURE) for the selected period
+    const salesByTypeStart = dateRange ? dateRange.from : startOfMonth;
+    const salesByTypeEnd = dateRange ? dateRange.to : now;
+    
+    const [immediateSales, futureSales] = await Promise.all([
+      this.prisma.purchase.aggregate({
+        where: {
+          status: PurchaseStatus.PAID,
+          purchaseType: PurchaseType.IMMEDIATE,
+          paidAt: {
+            gte: salesByTypeStart,
+            lte: salesByTypeEnd,
+          },
+          NOT: {
+            status: PurchaseStatus.CANCELLED,
+          },
+        },
+        _sum: { totalAmount: true },
+        _count: { id: true },
+      }),
+      this.prisma.purchase.aggregate({
+        where: {
+          status: PurchaseStatus.PAID,
+          purchaseType: PurchaseType.FUTURE,
+          paidAt: {
+            gte: salesByTypeStart,
+            lte: salesByTypeEnd,
+          },
+          NOT: {
+            status: PurchaseStatus.CANCELLED,
+          },
+        },
+        _sum: { totalAmount: true },
+        _count: { id: true },
+      }),
+    ]);
+    
+    const immediateRevenue = Number(immediateSales._sum.totalAmount || 0);
+    const futureRevenue = Number(futureSales._sum.totalAmount || 0);
+    const totalTypeRevenue = immediateRevenue + futureRevenue;
+    const immediateCount = immediateSales._count.id || 0;
+    const futureCount = futureSales._count.id || 0;
+    const totalTypeCount = immediateCount + futureCount;
+    
+    // Get sales by period (daily, weekly, monthly) for the selected range
+    const periodStart = dateRange ? dateRange.from : startOfMonth;
+    const periodEnd = dateRange ? dateRange.to : now;
+    
+    // Daily breakdown - optimized: fetch all sales and group by date
+    const allPeriodSales = await this.prisma.purchase.findMany({
+      where: {
+        status: PurchaseStatus.PAID,
+        purchaseType: { in: [PurchaseType.IMMEDIATE, PurchaseType.FUTURE] },
+        paidAt: { gte: periodStart, lte: periodEnd },
+        NOT: { status: PurchaseStatus.CANCELLED },
+      },
+      select: {
+        totalAmount: true,
+        paidAt: true,
+      },
+    });
+    
+    const allPeriodGraves = await this.prisma.graveSlot.findMany({
+      where: {
+        purchaseId: { not: null },
+        createdAt: { gte: periodStart, lte: periodEnd },
+      },
+      select: {
+        createdAt: true,
+      },
+    });
+    
+    // Group by date
+    const dailyMap = new Map<string, { sales: number; revenue: number; gravesSold: number }>();
+    
+    // Initialize all dates in range
+    const currentDate = new Date(periodStart);
+    while (currentDate <= periodEnd) {
+      const dateKey = currentDate.toISOString().split('T')[0];
+      dailyMap.set(dateKey, { sales: 0, revenue: 0, gravesSold: 0 });
+      currentDate.setDate(currentDate.getDate() + 1);
+    }
+    
+    // Aggregate sales by date
+    allPeriodSales.forEach((sale) => {
+      if (sale.paidAt) {
+        const dateKey = new Date(sale.paidAt).toISOString().split('T')[0];
+        const day = dailyMap.get(dateKey);
+        if (day) {
+          day.sales += 1;
+          day.revenue += Number(sale.totalAmount);
+        }
+      }
+    });
+    
+    // Aggregate graves by date
+    allPeriodGraves.forEach((grave) => {
+      const dateKey = new Date(grave.createdAt).toISOString().split('T')[0];
+      const day = dailyMap.get(dateKey);
+      if (day) {
+        day.gravesSold += 1;
+      }
+    });
+    
+    // Convert to array and sort
+    const dailySales = Array.from(dailyMap.entries())
+      .map(([date, data]) => ({ date, ...data }))
+      .sort((a, b) => a.date.localeCompare(b.date));
+    
+    // Weekly breakdown (group daily sales by week)
+    const weeklySales: Array<{ week: string; sales: number; revenue: number; gravesSold: number }> = [];
+    const weeklyMap = new Map<string, { sales: number; revenue: number; gravesSold: number }>();
+    
+    dailySales.forEach((day) => {
+      const date = new Date(day.date);
+      const weekStart = new Date(date);
+      const dayOfWeek = date.getDay();
+      const daysFromMonday = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
+      weekStart.setDate(date.getDate() - daysFromMonday);
+      const weekKey = `Week of ${weekStart.toLocaleDateString()}`;
+      
+      if (!weeklyMap.has(weekKey)) {
+        weeklyMap.set(weekKey, { sales: 0, revenue: 0, gravesSold: 0 });
+      }
+      
+      const week = weeklyMap.get(weekKey)!;
+      week.sales += day.sales;
+      week.revenue += day.revenue;
+      week.gravesSold += day.gravesSold;
+    });
+    
+    weeklyMap.forEach((data, week) => {
+      weeklySales.push({ week, ...data });
+    });
+    weeklySales.sort((a, b) => a.week.localeCompare(b.week));
+    
+    // Monthly breakdown (group by month)
+    const monthlySales: Array<{ month: string; sales: number; revenue: number; gravesSold: number }> = [];
+    const monthlyMap = new Map<string, { sales: number; revenue: number; gravesSold: number }>();
+    
+    dailySales.forEach((day) => {
+      const date = new Date(day.date);
+      const monthKey = date.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+      
+      if (!monthlyMap.has(monthKey)) {
+        monthlyMap.set(monthKey, { sales: 0, revenue: 0, gravesSold: 0 });
+      }
+      
+      const month = monthlyMap.get(monthKey)!;
+      month.sales += day.sales;
+      month.revenue += day.revenue;
+      month.gravesSold += day.gravesSold;
+    });
+    
+    monthlyMap.forEach((data, month) => {
+      monthlySales.push({ month, ...data });
+    });
+    monthlySales.sort((a, b) => new Date(a.month).getTime() - new Date(b.month).getTime());
+
     return {
       summary: {
         today,
         thisWeek,
         thisMonth,
         ...(customRange && { customRange }),
+      },
+      // NEW: Simple KPIs
+      kpis: {
+        averageSaleValue,
+        totalSales: kpiMetrics?.count || 0,
+        totalRevenue: kpiMetrics?.amount || 0,
+      },
+      // NEW: Growth Analytics
+      growth: {
+        revenueGrowth: Math.round(revenueGrowth * 100) / 100,
+        salesCountGrowth: Math.round(salesCountGrowth * 100) / 100,
+        gravesSoldGrowth: Math.round(gravesSoldGrowth * 100) / 100,
+        previousPeriod: previousPeriod || {
+          revenue: 0,
+          count: 0,
+          gravesSold: 0,
+          period: 'N/A',
+        },
+      },
+      // NEW: Sales by Period
+      salesByPeriod: {
+        daily: dailySales,
+        weekly: weeklySales,
+        monthly: monthlySales,
+      },
+      // NEW: Sales by Type
+      salesByType: {
+        immediate: {
+          count: immediateCount,
+          revenue: immediateRevenue,
+          percentage: totalTypeCount > 0 ? Math.round((immediateCount / totalTypeCount) * 100) : 0,
+        },
+        future: {
+          count: futureCount,
+          revenue: futureRevenue,
+          percentage: totalTypeCount > 0 ? Math.round((futureCount / totalTypeCount) * 100) : 0,
+        },
       },
       sectionBreakdown: Object.values(sectionBreakdown),
       recentSales: recentSales.map((p) => ({
