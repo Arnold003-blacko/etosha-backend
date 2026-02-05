@@ -252,6 +252,10 @@ model Purchase {
   @@index([memberId])
   @@index([memberId, status])
   @@index([memberId, createdAt])
+  @@index([status, paidAt])
+  @@index([status, purchaseType])
+  @@index([yearPlanId, status, balance])
+  @@index([paidAt])
 }
 
 ////////////////////
@@ -282,6 +286,8 @@ model Payment {
   @@index([memberId, createdAt])
   @@index([purchaseId])
   @@index([status])
+  @@index([status, paidAt])
+  @@index([paidAt])
 }
 
 ////////////////////

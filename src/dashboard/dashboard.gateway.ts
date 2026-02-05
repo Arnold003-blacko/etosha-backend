@@ -6,7 +6,8 @@ import {
   SubscribeMessage,
 } from '@nestjs/websockets';
 import { Server, Socket } from 'socket.io';
-import { Logger } from '@nestjs/common';
+import { Logger, Inject, forwardRef } from '@nestjs/common';
+import { DashboardService } from './dashboard.service';
 
 // 🔒 WebSocket CORS configuration - matches backend CORS settings
 const getWebSocketOrigins = () => {
@@ -36,6 +37,11 @@ export class DashboardGateway
   private readonly logger = new Logger(DashboardGateway.name);
   private clients: Map<string, Socket> = new Map();
 
+  constructor(
+    @Inject(forwardRef(() => DashboardService))
+    private readonly dashboardService: DashboardService,
+  ) {}
+
   handleConnection(client: Socket) {
     this.clients.set(client.id, client);
     this.logger.log(`Client connected: ${client.id}`);
@@ -51,8 +57,12 @@ export class DashboardGateway
 
   /**
    * Broadcast dashboard update to all connected clients
+   * Also invalidates the dashboard stats cache
    */
   broadcastDashboardUpdate() {
+    // ✅ PERFORMANCE: Invalidate cache when dashboard data changes
+    this.dashboardService.invalidateDashboardCache();
+    
     this.server.emit('dashboard-update', {
       timestamp: new Date().toISOString(),
       message: 'Dashboard data has been updated',

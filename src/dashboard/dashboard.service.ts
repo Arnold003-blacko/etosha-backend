@@ -11,111 +11,146 @@ import { resolveMatrixPrice } from '../pricing/pricing.service';
 
 @Injectable()
 export class DashboardService {
+  // ✅ PERFORMANCE: Cache dashboard stats for 30 seconds to reduce database load
+  private dashboardStatsCache: {
+    data: any;
+    timestamp: number;
+  } | null = null;
+  private readonly CACHE_TTL = 30000; // 30 seconds
+
   constructor(private readonly prisma: PrismaService) {}
+
+  /**
+   * Invalidate dashboard stats cache
+   * Call this when payments, purchases, or burials are updated
+   */
+  invalidateDashboardCache() {
+    this.dashboardStatsCache = null;
+  }
 
   /* =====================================================
    * GET DASHBOARD STATISTICS
    * ===================================================== */
   async getDashboardStats() {
-    const now = new Date();
-    const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    // ✅ PERFORMANCE: Return cached data if still valid
+    const now = Date.now();
+    if (
+      this.dashboardStatsCache &&
+      now - this.dashboardStatsCache.timestamp < this.CACHE_TTL
+    ) {
+      return this.dashboardStatsCache.data;
+    }
+
+    const currentDate = new Date();
+    const startOfToday = new Date(
+      currentDate.getFullYear(),
+      currentDate.getMonth(),
+      currentDate.getDate(),
+    );
     
-    // Get all successful payments (exclude legacy settlements and payments from cancelled purchases)
-    const allPayments = await this.prisma.payment.aggregate({
-      where: {
-        status: PaymentStatus.SUCCESS,
-        method: {
-          not: 'LEGACY_SETTLEMENT',
-        },
-        purchase: {
-          status: {
-            not: PurchaseStatus.CANCELLED,
-          },
-        },
-      },
-      _sum: {
-        amount: true,
-      },
-      _count: {
-        id: true,
-      },
-    });
-
-    // Get today's successful payments (exclude legacy settlements and payments from cancelled purchases)
-    const todayPayments = await this.prisma.payment.aggregate({
-      where: {
-        status: PaymentStatus.SUCCESS,
-        method: {
-          not: 'LEGACY_SETTLEMENT',
-        },
-        paidAt: {
-          gte: startOfToday,
-        },
-        purchase: {
-          status: {
-            not: PurchaseStatus.CANCELLED,
-          },
-        },
-      },
-      _sum: {
-        amount: true,
-      },
-      _count: {
-        id: true,
-      },
-    });
-
-    // Get today's sales (purchases fully paid today: IMMEDIATE+PAID or FUTURE+PAID)
-    // Exclude cancelled purchases - they are stale and not real sales
-    const todaySales = await this.prisma.purchase.aggregate({
-      where: {
-        status: PurchaseStatus.PAID,
-        purchaseType: {
-          in: [PurchaseType.IMMEDIATE, PurchaseType.FUTURE],
-        },
-        paidAt: {
-          gte: startOfToday,
-        },
-        // Exclude cancelled purchases - they are stale
-        NOT: {
-          status: PurchaseStatus.CANCELLED,
-        },
-      },
-      _sum: {
-        totalAmount: true,
-      },
-      _count: {
-        id: true,
-      },
-    });
-
-    // Get burials scheduled for this week (based on burialDate or expectedBurial)
     // Calculate start and end of current week (Monday to Sunday)
-    const dayOfWeek = now.getDay(); // 0 = Sunday, 1 = Monday, etc.
+    const dayOfWeek = currentDate.getDay(); // 0 = Sunday, 1 = Monday, etc.
     const daysFromMonday = dayOfWeek === 0 ? 6 : dayOfWeek - 1; // Convert to Monday-based
-    const startOfWeek = new Date(now);
-    startOfWeek.setDate(now.getDate() - daysFromMonday);
+    const startOfWeek = new Date(currentDate);
+    startOfWeek.setDate(currentDate.getDate() - daysFromMonday);
     startOfWeek.setHours(0, 0, 0, 0);
     
     const endOfWeek = new Date(startOfWeek);
     endOfWeek.setDate(startOfWeek.getDate() + 6);
     endOfWeek.setHours(23, 59, 59, 999);
 
-    // Match calendar logic: check both burialDate and expectedBurial, exclude PENDING_WAIVER_APPROVAL
-    const burialsThisWeek = await this.prisma.deceased.count({
-      where: {
-        OR: [
-          { burialDate: { gte: startOfWeek, lte: endOfWeek } },
-          { expectedBurial: { gte: startOfWeek, lte: endOfWeek } },
-        ],
-        status: {
-          not: BurialStatus.PENDING_WAIVER_APPROVAL, // Only show confirmed burials (match calendar logic)
+    // ✅ OPTIMIZED: Run all queries in parallel instead of sequentially
+    const [
+      allPayments,
+      todayPayments,
+      todaySales,
+      burialsThisWeek,
+      duePayments,
+    ] = await Promise.all([
+      // Get all successful payments (exclude legacy settlements and payments from cancelled purchases)
+      this.prisma.payment.aggregate({
+        where: {
+          status: PaymentStatus.SUCCESS,
+          method: {
+            not: 'LEGACY_SETTLEMENT',
+          },
+          purchase: {
+            status: {
+              not: PurchaseStatus.CANCELLED,
+            },
+          },
         },
-      },
-    });
+        _sum: {
+          amount: true,
+        },
+        _count: {
+          id: true,
+        },
+      }),
 
-    // Calculate due payments for payment plans
-    const duePayments = await this.calculateDuePayments(now);
+      // Get today's successful payments (exclude legacy settlements and payments from cancelled purchases)
+      this.prisma.payment.aggregate({
+        where: {
+          status: PaymentStatus.SUCCESS,
+          method: {
+            not: 'LEGACY_SETTLEMENT',
+          },
+          paidAt: {
+            gte: startOfToday,
+          },
+          purchase: {
+            status: {
+              not: PurchaseStatus.CANCELLED,
+            },
+          },
+        },
+        _sum: {
+          amount: true,
+        },
+        _count: {
+          id: true,
+        },
+      }),
+
+      // Get today's sales (purchases fully paid today: IMMEDIATE+PAID or FUTURE+PAID)
+      this.prisma.purchase.aggregate({
+        where: {
+          status: PurchaseStatus.PAID,
+          purchaseType: {
+            in: [PurchaseType.IMMEDIATE, PurchaseType.FUTURE],
+          },
+          paidAt: {
+            gte: startOfToday,
+          },
+          // Exclude cancelled purchases - they are stale
+          NOT: {
+            status: PurchaseStatus.CANCELLED,
+          },
+        },
+        _sum: {
+          totalAmount: true,
+        },
+        _count: {
+          id: true,
+        },
+      }),
+
+      // Get burials scheduled for this week
+      this.prisma.deceased.count({
+        where: {
+          OR: [
+            { burialDate: { gte: startOfWeek, lte: endOfWeek } },
+            { expectedBurial: { gte: startOfWeek, lte: endOfWeek } },
+          ],
+          status: {
+            not: BurialStatus.PENDING_WAIVER_APPROVAL,
+          },
+        },
+      }),
+
+      // Calculate due payments for payment plans
+      this.calculateDuePayments(currentDate),
+    ]);
 
     // Ensure duePayments is a valid number (not NaN or undefined)
     const safeDuePayments = 
@@ -125,7 +160,7 @@ export class DashboardService {
         ? Number(duePayments)
         : 0;
 
-    return {
+    const result = {
       total: {
         amount: Number(allPayments._sum.amount || 0),
         count: allPayments._count.id || 0,
@@ -141,6 +176,14 @@ export class DashboardService {
       burialsScheduled: burialsThisWeek,
       duePayments: safeDuePayments,
     };
+
+    // ✅ PERFORMANCE: Cache the result
+    this.dashboardStatsCache = {
+      data: result,
+      timestamp: now,
+    };
+
+    return result;
   }
 
   /* =====================================================
@@ -159,9 +202,9 @@ export class DashboardService {
     );
     firstOfCurrentMonth.setHours(0, 0, 0, 0);
 
-    // Get ALL purchases with balance > 0 and a payment plan (yearPlanId)
-    // This gets purchases from ALL members who haven't finished paying
-    // Note: We only look at purchases with yearPlanId (payment plans)
+    // ✅ OPTIMIZED: Get purchases with balance > 0 and a payment plan (yearPlanId)
+    // Use select instead of include for better performance
+    // Limit to active payment plans only
     const purchasesWithPlans = await this.prisma.purchase.findMany({
       where: {
         balance: {
@@ -174,7 +217,10 @@ export class DashboardService {
           in: [PurchaseStatus.PENDING_PAYMENT, PurchaseStatus.PARTIALLY_PAID],
         },
       },
-      include: {
+      select: {
+        id: true,
+        balance: true,
+        createdAt: true,
         member: {
           select: {
             dateOfBirth: true,
@@ -183,10 +229,28 @@ export class DashboardService {
         product: {
           select: {
             pricingSection: true,
+            amount: true,
+            category: true,
           },
         },
-        yearPlan: true,
+        yearPlan: {
+          select: {
+            id: true,
+            months: true,
+            muhacha_under60: true,
+            muhacha_over60: true,
+            lawn_under60: true,
+            lawn_over60: true,
+            donhodzo_under60: true,
+            donhodzo_over60: true,
+            family_under60: true,
+            family_over60: true,
+          },
+        },
       },
+      // ✅ OPTIMIZED: Add limit to prevent loading too many records at once
+      // If you have more than 1000 active payment plans, consider pagination
+      take: 1000,
     });
 
     // Debug: Log how many purchases were found
