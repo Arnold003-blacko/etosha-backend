@@ -15,17 +15,120 @@ export class SmsService {
   private twilioClient: TwilioType | null = null;
 
   constructor(private readonly prisma: PrismaService) {
-    // Initialize Twilio client if credentials are available
+    this.initializeTwilioClient();
+  }
+
+  /**
+   * Initialize or reinitialize Twilio client
+   */
+  private initializeTwilioClient(): void {
     const accountSid = process.env.TWILIO_ACCOUNT_SID;
     const authToken = process.env.TWILIO_AUTH_TOKEN;
 
     if (accountSid && authToken) {
-      this.twilioClient = Twilio(accountSid, authToken);
-      this.logger.log('Twilio client initialized');
+      try {
+        this.twilioClient = Twilio(accountSid, authToken);
+        this.logger.log('Twilio client initialized successfully');
+      } catch (error) {
+        this.logger.error(
+          `Failed to initialize Twilio client: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        );
+        this.twilioClient = null;
+      }
     } else {
       this.logger.warn(
         'Twilio credentials not found. SMS sending will be disabled.',
       );
+      this.twilioClient = null;
+    }
+  }
+
+  /**
+   * Check if Twilio is properly configured
+   */
+  isTwilioConfigured(): boolean {
+    const accountSid = process.env.TWILIO_ACCOUNT_SID;
+    const authToken = process.env.TWILIO_AUTH_TOKEN;
+    const messagingServiceSid = process.env.TWILIO_MESSAGING_SERVICE_SID;
+    const phoneNumber = process.env.TWILIO_PHONE_NUMBER;
+
+    return !!(
+      accountSid &&
+      authToken &&
+      (messagingServiceSid || phoneNumber)
+    );
+  }
+
+  /**
+   * Get Twilio configuration status
+   */
+  getTwilioConfigStatus(): {
+    configured: boolean;
+    hasAccountSid: boolean;
+    hasAuthToken: boolean;
+    hasMessagingService: boolean;
+    hasPhoneNumber: boolean;
+    status: 'ready' | 'missing_config' | 'error';
+  } {
+    const accountSid = process.env.TWILIO_ACCOUNT_SID;
+    const authToken = process.env.TWILIO_AUTH_TOKEN;
+    const messagingServiceSid = process.env.TWILIO_MESSAGING_SERVICE_SID;
+    const phoneNumber = process.env.TWILIO_PHONE_NUMBER;
+
+    const hasAccountSid = !!accountSid;
+    const hasAuthToken = !!authToken;
+    const hasMessagingService = !!messagingServiceSid;
+    const hasPhoneNumber = !!phoneNumber;
+
+    const configured =
+      hasAccountSid &&
+      hasAuthToken &&
+      (hasMessagingService || hasPhoneNumber);
+
+    let status: 'ready' | 'missing_config' | 'error' = 'missing_config';
+    if (configured && this.twilioClient) {
+      status = 'ready';
+    } else if (configured && !this.twilioClient) {
+      status = 'error';
+    }
+
+    return {
+      configured,
+      hasAccountSid,
+      hasAuthToken,
+      hasMessagingService,
+      hasPhoneNumber,
+      status,
+    };
+  }
+
+  /**
+   * Validate Twilio configuration and throw if missing
+   */
+  private validateTwilioConfig(): void {
+    if (!this.isTwilioConfigured()) {
+      const config = this.getTwilioConfigStatus();
+      const missing: string[] = [];
+
+      if (!config.hasAccountSid) missing.push('TWILIO_ACCOUNT_SID');
+      if (!config.hasAuthToken) missing.push('TWILIO_AUTH_TOKEN');
+      if (!config.hasMessagingService && !config.hasPhoneNumber) {
+        missing.push('TWILIO_MESSAGING_SERVICE_SID or TWILIO_PHONE_NUMBER');
+      }
+
+      throw new Error(
+        `Twilio is not configured. Missing environment variables: ${missing.join(', ')}`,
+      );
+    }
+
+    if (!this.twilioClient) {
+      // Try to reinitialize
+      this.initializeTwilioClient();
+      if (!this.twilioClient) {
+        throw new Error(
+          'Twilio client failed to initialize. Please check your credentials.',
+        );
+      }
     }
   }
 
@@ -107,14 +210,22 @@ export class SmsService {
     // Get burial reference (use ID first 8 chars)
     const burialRef = burial.id.substring(0, 8).toUpperCase();
 
-    // Get all active staff for operational SMS (SITE + OFFICE)
-    const operationalStaff = await this.prisma.staff.findMany({
+    // Get Site Staff (all SITE staff)
+    const siteStaff = await this.prisma.staff.findMany({
       where: {
         isActive: true,
         isApproved: true,
-        staffType: {
-          in: [StaffType.SITE, StaffType.OFFICE],
-        },
+        staffType: StaffType.SITE,
+      },
+    });
+
+    // Get Office Level 1 Staff only (exclude bosses/managers)
+    const officeLevel1Staff = await this.prisma.staff.findMany({
+      where: {
+        isActive: true,
+        isApproved: true,
+        staffType: StaffType.OFFICE,
+        level: 1, // Only Level 1 general workers
       },
     });
 
@@ -139,13 +250,41 @@ export class SmsService {
     const smsLogs: any[] = [];
 
     try {
-      // Send operational SMS to Site + Office staff
-      for (const staff of operationalStaff) {
+      // Send operational SMS to Site Staff
+      for (const staff of siteStaff) {
         const message = this.formatOperationalSms(
           burialRef,
           sectionLabel,
           burial.fullName,
           burialDateTime,
+        );
+
+        const phoneE164 = this.normalizePhoneToE164(staff.phone);
+        if (!phoneE164) {
+          this.logger.warn(
+            `Invalid phone number for staff ${staff.id}: ${staff.phone}`,
+          );
+          continue;
+        }
+
+        const smsLog = await this.sendSms(
+          phoneE164,
+          message,
+          SmsCategory.OPS,
+          outbox.id,
+        );
+        smsLogs.push(smsLog);
+      }
+
+      // Send Office Level 1 SMS (includes NOK details)
+      for (const staff of officeLevel1Staff) {
+        const message = this.formatOfficeLevel1Sms(
+          burialRef,
+          sectionLabel,
+          burial.fullName,
+          burialDateTime,
+          burial.nextOfKin.fullName,
+          burial.nextOfKin.phone,
         );
 
         const phoneE164 = this.normalizePhoneToE164(staff.phone);
@@ -268,6 +407,27 @@ Burial: ${burialDateTime}`;
   }
 
   /**
+   * Format Office Level 1 SMS message (includes NOK details)
+   */
+  private formatOfficeLevel1Sms(
+    ref: string,
+    section: string,
+    deceasedName: string,
+    burialDateTime: string,
+    nokName: string,
+    nokPhone: string,
+  ): string {
+    return `BURIAL NOTICE
+Ref: ${ref}
+Section: ${section}
+Deceased: ${deceasedName}
+Burial: ${burialDateTime}
+NOK: ${nokName}
+NOK Phone: ${nokPhone}
+Please prepare for walk-in clients.`;
+  }
+
+  /**
    * Send SMS via Twilio
    */
   private async sendSms(
@@ -276,30 +436,25 @@ Burial: ${burialDateTime}`;
     category: SmsCategory,
     outboxId: string,
   ): Promise<any> {
+    // Validate phone number format
+    const normalizedPhone = this.normalizePhoneToE164(to);
+    if (!normalizedPhone) {
+      throw new Error(`Invalid phone number format: ${to}`);
+    }
+
+    // Validate Twilio configuration
+    this.validateTwilioConfig();
+
     // Create SMS log entry
     const smsLog = await this.prisma.smsLog.create({
       data: {
         outboxId,
-        recipientPhone: to,
+        recipientPhone: normalizedPhone,
         messageBody: message,
         category,
         status: SmsStatus.QUEUED,
       },
     });
-
-    if (!this.twilioClient) {
-      this.logger.warn(
-        `Twilio not configured. SMS log created but not sent: ${smsLog.id}`,
-      );
-      await this.prisma.smsLog.update({
-        where: { id: smsLog.id },
-        data: {
-          status: SmsStatus.FAILED,
-          errorMessage: 'Twilio not configured',
-        },
-      });
-      return smsLog;
-    }
 
     try {
       const messagingServiceSid = process.env.TWILIO_MESSAGING_SERVICE_SID;
@@ -312,8 +467,8 @@ Burial: ${burialDateTime}`;
       }
 
       // Use Messaging Service if available, otherwise use phone number
-      const twilioMessage = await this.twilioClient.messages.create({
-        to,
+      const twilioMessage = await this.twilioClient!.messages.create({
+        to: normalizedPhone,
         body: message,
         ...(messagingServiceSid
           ? { messagingServiceSid }
@@ -331,12 +486,12 @@ Burial: ${burialDateTime}`;
         },
       });
 
-      this.logger.log(`SMS sent: ${twilioMessage.sid} to ${to}`);
+      this.logger.log(`SMS sent: ${twilioMessage.sid} to ${normalizedPhone}`);
       return smsLog;
     } catch (error) {
       const errorMessage =
         error instanceof Error ? error.message : 'Unknown error';
-      this.logger.error(`Failed to send SMS to ${to}: ${errorMessage}`);
+      this.logger.error(`Failed to send SMS to ${normalizedPhone}: ${errorMessage}`);
 
       await this.prisma.smsLog.update({
         where: { id: smsLog.id },
@@ -347,6 +502,72 @@ Burial: ${burialDateTime}`;
       });
 
       throw error;
+    }
+  }
+
+  /**
+   * Send a test SMS (public method for testing)
+   */
+  async sendTestSms(
+    phoneNumber: string,
+    message?: string,
+  ): Promise<{ success: boolean; messageSid?: string; error?: string }> {
+    try {
+      // Validate Twilio configuration
+      this.validateTwilioConfig();
+
+      // Normalize phone number
+      const normalizedPhone = this.normalizePhoneToE164(phoneNumber);
+      if (!normalizedPhone) {
+        return {
+          success: false,
+          error: `Invalid phone number format: ${phoneNumber}`,
+        };
+      }
+
+      // Default test message
+      const testMessage =
+        message ||
+        `Test SMS from Etosha - ${new Date().toLocaleString()}`;
+
+      // Create a temporary outbox entry for tracking
+      const outbox = await this.prisma.smsOutbox.create({
+        data: {
+          eventType: SmsOutboxEventType.PROMOTIONAL_CAMPAIGN,
+          payload: { test: true },
+          status: 'PROCESSING',
+        },
+      });
+
+      // Send SMS
+      const smsLog = await this.sendSms(
+        normalizedPhone,
+        testMessage,
+        SmsCategory.PROMO,
+        outbox.id,
+      );
+
+      // Mark outbox as completed
+      await this.prisma.smsOutbox.update({
+        where: { id: outbox.id },
+        data: {
+          status: 'COMPLETED',
+          processedAt: new Date(),
+        },
+      });
+
+      return {
+        success: true,
+        messageSid: smsLog.twilioMessageSid || undefined,
+      };
+    } catch (error) {
+      const errorMessage =
+        error instanceof Error ? error.message : 'Unknown error';
+      this.logger.error(`Test SMS failed: ${errorMessage}`);
+      return {
+        success: false,
+        error: errorMessage,
+      };
     }
   }
 
@@ -583,5 +804,302 @@ Pay via ${paymentMethods} or call ${supportPhone}.`;
       });
       throw error;
     }
+  }
+
+  /**
+   * Create a new promotional campaign
+   */
+  async createPromotionalCampaign(
+    title: string,
+    message: string,
+    targetGroup: any,
+    scheduledFor: Date | null,
+    createdBy: string,
+  ) {
+    const campaign = await this.prisma.smsCampaign.create({
+      data: {
+        title,
+        message,
+        targetGroup: targetGroup ? JSON.stringify(targetGroup) : null,
+        scheduledFor,
+        status: scheduledFor ? 'SCHEDULED' : 'DRAFT',
+        createdBy,
+      },
+    });
+
+    this.logger.log(`Created promotional campaign: ${campaign.id}`);
+    return campaign;
+  }
+
+  /**
+   * Schedule a campaign for future sending
+   */
+  async scheduleCampaign(campaignId: string, scheduledFor: Date) {
+    const campaign = await this.prisma.smsCampaign.update({
+      where: { id: campaignId },
+      data: {
+        scheduledFor,
+        status: 'SCHEDULED',
+      },
+    });
+
+    this.logger.log(`Scheduled campaign ${campaignId} for ${scheduledFor}`);
+    return campaign;
+  }
+
+  /**
+   * Get eligible members based on campaign target group filters
+   */
+  private async getEligibleMembers(targetGroup: any): Promise<any[]> {
+    let where: any = {
+      AND: [
+        { phone: { not: null } },
+        { phone: { not: '' } },
+      ], // Must have phone number
+    };
+
+    // Parse target group filters
+    if (targetGroup) {
+      // Filter: hasPurchases
+      if (targetGroup.hasPurchases === true) {
+        where.purchases = {
+          some: {},
+        };
+      }
+
+      // Filter: specific sections (via purchases)
+      if (targetGroup.sections && Array.isArray(targetGroup.sections)) {
+        where.purchases = {
+          ...where.purchases,
+          some: {
+            product: {
+              pricingSection: {
+                in: targetGroup.sections,
+              },
+            },
+          },
+        };
+      }
+
+      // Filter: date range (members created between dates)
+      if (targetGroup.createdAfter || targetGroup.createdBefore) {
+        where.createdAt = {};
+        if (targetGroup.createdAfter) {
+          where.createdAt.gte = new Date(targetGroup.createdAfter);
+        }
+        if (targetGroup.createdBefore) {
+          where.createdAt.lte = new Date(targetGroup.createdBefore);
+        }
+      }
+    }
+
+    const members = await this.prisma.member.findMany({
+      where,
+      select: {
+        id: true,
+        firstName: true,
+        lastName: true,
+        phone: true,
+      },
+    });
+
+    return members;
+  }
+
+  /**
+   * Process promotional campaign and send SMS to eligible members
+   */
+  async processPromotionalCampaign(campaignId: string) {
+    const campaign = await this.prisma.smsCampaign.findUnique({
+      where: { id: campaignId },
+    });
+
+    if (!campaign) {
+      throw new Error(`Campaign ${campaignId} not found`);
+    }
+
+    if (campaign.status === 'COMPLETED') {
+      throw new Error(`Campaign ${campaignId} already completed`);
+    }
+
+    if (campaign.status === 'CANCELLED') {
+      throw new Error(`Campaign ${campaignId} is cancelled`);
+    }
+
+    // Update campaign status to SENDING
+    await this.prisma.smsCampaign.update({
+      where: { id: campaignId },
+      data: { status: 'SENDING' },
+    });
+
+    // Parse target group
+    const targetGroup = campaign.targetGroup
+      ? JSON.parse(campaign.targetGroup)
+      : null;
+
+    // Get eligible members
+    const eligibleMembers = await this.getEligibleMembers(targetGroup);
+
+    if (eligibleMembers.length === 0) {
+      await this.prisma.smsCampaign.update({
+        where: { id: campaignId },
+        data: {
+          status: 'COMPLETED',
+          sentAt: new Date(),
+        },
+      });
+      this.logger.warn(`No eligible members for campaign ${campaignId}`);
+      return { sent: 0, failed: 0 };
+    }
+
+    // Create outbox event for tracking
+    const outbox = await this.prisma.smsOutbox.create({
+      data: {
+        eventType: SmsOutboxEventType.PROMOTIONAL_CAMPAIGN,
+        payload: { campaignId },
+        status: 'PROCESSING',
+        campaignId: campaign.id,
+      },
+    });
+
+    let sentCount = 0;
+    let failedCount = 0;
+
+    try {
+      // Send SMS to each eligible member
+      for (const member of eligibleMembers) {
+        const phoneE164 = this.normalizePhoneToE164(member.phone);
+        if (!phoneE164) {
+          this.logger.warn(
+            `Invalid phone number for member ${member.id}: ${member.phone}`,
+          );
+          failedCount++;
+          continue;
+        }
+
+        try {
+          await this.sendSms(
+            phoneE164,
+            campaign.message,
+            SmsCategory.PROMO,
+            outbox.id,
+          );
+          sentCount++;
+        } catch (error) {
+          this.logger.error(
+            `Failed to send promotional SMS to ${phoneE164}: ${error instanceof Error ? error.message : 'Unknown error'}`,
+          );
+          failedCount++;
+        }
+      }
+
+      // Mark outbox as completed
+      await this.prisma.smsOutbox.update({
+        where: { id: outbox.id },
+        data: {
+          status: 'COMPLETED',
+          processedAt: new Date(),
+        },
+      });
+
+      // Mark campaign as completed
+      await this.prisma.smsCampaign.update({
+        where: { id: campaignId },
+        data: {
+          status: 'COMPLETED',
+          sentAt: new Date(),
+        },
+      });
+
+      this.logger.log(
+        `Campaign ${campaignId} completed: ${sentCount} sent, ${failedCount} failed`,
+      );
+
+      return { sent: sentCount, failed: failedCount };
+    } catch (error) {
+      // Mark outbox as failed
+      await this.prisma.smsOutbox.update({
+        where: { id: outbox.id },
+        data: {
+          status: 'FAILED',
+          errorMessage: error instanceof Error ? error.message : 'Unknown error',
+          processedAt: new Date(),
+        },
+      });
+
+      // Mark campaign as failed
+      await this.prisma.smsCampaign.update({
+        where: { id: campaignId },
+        data: {
+          status: 'DRAFT', // Reset to draft so it can be retried
+        },
+      });
+
+      throw error;
+    }
+  }
+
+  /**
+   * Get all campaigns
+   */
+  async getCampaigns() {
+    return this.prisma.smsCampaign.findMany({
+      orderBy: { createdAt: 'desc' },
+      include: {
+        outboxEvents: {
+          include: {
+            smsLogs: {
+              select: {
+                status: true,
+              },
+            },
+          },
+        },
+      },
+    });
+  }
+
+  /**
+   * Get campaign by ID
+   */
+  async getCampaignById(campaignId: string) {
+    return this.prisma.smsCampaign.findUnique({
+      where: { id: campaignId },
+      include: {
+        outboxEvents: {
+          include: {
+            smsLogs: true,
+          },
+        },
+      },
+    });
+  }
+
+  /**
+   * Cancel a scheduled campaign
+   */
+  async cancelCampaign(campaignId: string) {
+    const campaign = await this.prisma.smsCampaign.findUnique({
+      where: { id: campaignId },
+    });
+
+    if (!campaign) {
+      throw new Error(`Campaign ${campaignId} not found`);
+    }
+
+    if (campaign.status === 'COMPLETED') {
+      throw new Error('Cannot cancel completed campaign');
+    }
+
+    if (campaign.status === 'SENDING') {
+      throw new Error('Cannot cancel campaign that is currently sending');
+    }
+
+    return this.prisma.smsCampaign.update({
+      where: { id: campaignId },
+      data: {
+        status: 'CANCELLED',
+      },
+    });
   }
 }

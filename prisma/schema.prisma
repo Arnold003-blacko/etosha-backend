@@ -87,12 +87,14 @@ enum StaffType {
 enum SmsOutboxEventType {
   BURIAL_READY_NOTIFY_TEAMS
   DEBTOR_MONTHLY_REMINDER
+  PROMOTIONAL_CAMPAIGN
 }
 
 enum SmsCategory {
   OPS
   PASTORAL
   DEBTOR
+  PROMO
 }
 
 enum SmsStatus {
@@ -507,6 +509,25 @@ model Commission {
 /// SMS NOTIFICATIONS
 ////////////////////
 
+model SmsCampaign {
+  id          String   @id @default(uuid()) @db.Uuid
+  title       String
+  message     String   @db.Text
+  targetGroup String?  // JSON: filter criteria (e.g., {"hasPurchases": true})
+  scheduledFor DateTime?
+  sentAt      DateTime?
+  status      String   @default("DRAFT") // DRAFT, SCHEDULED, SENDING, COMPLETED, CANCELLED
+  createdBy   String   // Staff ID
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  outboxEvents SmsOutbox[]
+  
+  @@index([status])
+  @@index([scheduledFor])
+  @@index([createdAt])
+}
+
 model SmsOutbox {
   id        String              @id @default(uuid()) @db.Uuid
   eventType SmsOutboxEventType
@@ -516,14 +537,17 @@ model SmsOutbox {
   maxRetries Int                @default(3)
   errorMessage String?           @db.Text
   processedAt DateTime?
+  campaignId String?             @db.Uuid // Link to campaign if this is a promotional campaign
   createdAt DateTime            @default(now())
   updatedAt DateTime            @updatedAt
 
   smsLogs SmsLog[]
+  campaign SmsCampaign? @relation(fields: [campaignId], references: [id], onDelete: SetNull)
 
   @@index([status])
   @@index([eventType])
   @@index([createdAt])
+  @@index([campaignId])
 }
 
 model SmsLog {

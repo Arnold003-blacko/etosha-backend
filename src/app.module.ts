@@ -1,6 +1,8 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { ScheduleModule } from '@nestjs/schedule';
+import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
+import { APP_GUARD } from '@nestjs/core';
 
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
@@ -27,10 +29,36 @@ import { ReportsModule } from './reports/reports.module';
 
 @Module({
   controllers: [AppController],
-  providers: [AppService],
+  providers: [
+    AppService,
+    // 🔒 Rate limiting guard (applied globally but can be overridden per route)
+    {
+      provide: APP_GUARD,
+      useClass: ThrottlerGuard,
+    },
+  ],
   imports: [
     // Global config (.env)
     ConfigModule.forRoot({ isGlobal: true }),
+
+    // 🔒 Rate limiting configuration
+    ThrottlerModule.forRoot([
+      {
+        name: 'short',
+        ttl: 60000, // 1 minute
+        limit: 10, // 10 requests per minute (for general endpoints)
+      },
+      {
+        name: 'medium',
+        ttl: 60000, // 1 minute
+        limit: 5, // 5 requests per minute (for auth endpoints - applied via decorator)
+      },
+      {
+        name: 'long',
+        ttl: 900000, // 15 minutes
+        limit: 100, // 100 requests per 15 minutes (for general API usage)
+      },
+    ]),
 
     // 🕒 Enable cron / scheduled jobs (SAFE)
     ScheduleModule.forRoot(),

@@ -1,4 +1,5 @@
 import { Controller, Post, Body } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import { AuthService } from './auth.service';
 
 // Reuse your existing DTOs
@@ -9,6 +10,8 @@ import { LoginMemberDto } from '../members/dto/login-member.dto';
 export class AuthController {
   constructor(private authService: AuthService) {}
 
+  // 🔒 Rate limit registration: 3 attempts per minute
+  @Throttle({ medium: { limit: 3, ttl: 60000 } })
   @Post('register')
   async register(@Body() body: CreateMemberDto) {
     const {
@@ -43,6 +46,8 @@ export class AuthController {
     );
   }
 
+  // 🔒 Rate limit login: 5 attempts per minute (prevents brute force)
+  @Throttle({ medium: { limit: 5, ttl: 60000 } })
   @Post('login')
   async login(@Body() body: LoginMemberDto) {
     return this.authService.login((body as any).email, (body as any).password);

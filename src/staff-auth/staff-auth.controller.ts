@@ -1,4 +1,5 @@
 import { Body, Controller, Post, UseGuards, Get, Param, Patch, ForbiddenException, Req } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import {
   IsEmail,
   IsNotEmpty,
@@ -71,6 +72,8 @@ export class StaffAuthController {
    * Public staff registration endpoint.
    * Accounts are created as inactive & unapproved until a system admin approves them.
    */
+  // 🔒 Rate limit registration: 3 attempts per minute
+  @Throttle({ medium: { limit: 3, ttl: 60000 } })
   @Post('register')
   async register(@Body() body: StaffRegisterDto) {
     const {
@@ -103,6 +106,8 @@ export class StaffAuthController {
   /**
    * Staff login for admin web.
    */
+  // 🔒 Rate limit login: 5 attempts per minute (prevents brute force)
+  @Throttle({ medium: { limit: 5, ttl: 60000 } })
   @Post('login')
   async login(@Body() body: StaffLoginDto) {
     return this.staffAuthService.login(body.email, body.password);

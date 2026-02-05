@@ -8,12 +8,20 @@ import {
 import { Server, Socket } from 'socket.io';
 import { Logger } from '@nestjs/common';
 
+// 🔒 WebSocket CORS configuration - matches backend CORS settings
+const getWebSocketOrigins = () => {
+  const corsOrigins = process.env.CORS_ORIGINS 
+    ? process.env.CORS_ORIGINS.split(',').map(origin => origin.trim())
+    : (process.env.NODE_ENV === 'production' ? [] : true); // Allow all in dev, none in prod unless specified
+  return corsOrigins;
+};
+
 @WebSocketGateway({
   cors: {
-    origin: true, // Allow all origins (same as backend CORS config)
+    origin: getWebSocketOrigins(), // Use same CORS configuration as backend
     credentials: true,
     methods: ['GET', 'POST', 'OPTIONS'],
-    allowedHeaders: ['*'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'Accept', 'Origin', 'X-Requested-With'],
   },
   namespace: '/dashboard',
   transports: ['websocket', 'polling'],

@@ -1,5 +1,8 @@
-import { Controller, Get, Query, Post, Body, Delete, Res, UseGuards, BadRequestException } from '@nestjs/common';
+import { Controller, Get, Query, Post, Body, Delete, Res, UseGuards, BadRequestException, UseInterceptors, UploadedFile, ParseFilePipe, MaxFileSizeValidator, FileTypeValidator } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 import type { Response } from 'express';
+import * as fs from 'fs/promises';
+import * as path from 'path';
 import { DashboardService } from './dashboard.service';
 import { LoggerService, LogLevel, LogCategory } from './logger.service';
 import { BackupService } from './backup.service';
@@ -267,6 +270,71 @@ export class DashboardController {
         error: 'Failed to create backup',
         message: error instanceof Error ? error.message : 'Unknown error',
       });
+    }
+  }
+
+  /**
+   * POST /dashboard/restore
+   * Restore database from SQL backup file
+   * 
+   * ⚠️ WARNING: This will overwrite existing data!
+   * 
+   * @param file SQL backup file
+   * @param createBackupFirst Create safety backup before restore (default: true)
+   * @param dropExisting Drop existing schema before restore (default: false)
+   */
+  @Post('restore')
+  @UseInterceptors(FileInterceptor('file'))
+  async restoreBackup(
+    @UploadedFile(
+      new ParseFilePipe({
+        validators: [
+          new MaxFileSizeValidator({ maxSize: 100 * 1024 * 1024 }), // 100MB max
+          new FileTypeValidator({ fileType: /\.(sql)$/ }), // Only .sql files
+        ],
+      }),
+    )
+    file: Express.Multer.File,
+    @Body('createBackupFirst') createBackupFirst?: string,
+    @Body('dropExisting') dropExisting?: string,
+  ) {
+    if (!file) {
+      throw new BadRequestException('SQL backup file is required');
+    }
+
+    try {
+      // Save uploaded file temporarily
+      const uploadsDir = path.join(process.cwd(), 'uploads');
+      await fs.mkdir(uploadsDir, { recursive: true });
+      const tempFilePath = path.join(uploadsDir, `restore-${Date.now()}-${file.originalname}`);
+      await fs.writeFile(tempFilePath, file.buffer, 'utf8');
+
+      // Parse boolean options
+      const shouldCreateBackup = createBackupFirst !== 'false';
+      const shouldDropExisting = dropExisting === 'true';
+
+      // Restore database
+      await this.backupService.restoreBackup(tempFilePath, {
+        createBackupFirst: shouldCreateBackup,
+        dropExisting: shouldDropExisting,
+      });
+
+      // Clean up temporary file
+      await fs.unlink(tempFilePath).catch(() => {
+        // Ignore cleanup errors
+      });
+
+      return {
+        message: 'Database restored successfully',
+        filename: file.originalname,
+        size: file.size,
+        createBackupFirst: shouldCreateBackup,
+        dropExisting: shouldDropExisting,
+      };
+    } catch (error) {
+      throw new BadRequestException(
+        `Failed to restore database: ${error instanceof Error ? error.message : 'Unknown error'}`,
+      );
     }
   }
 }

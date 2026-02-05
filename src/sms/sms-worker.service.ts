@@ -70,6 +70,12 @@ export class SmsWorkerService {
                 amountDue: number;
               },
             );
+          } else if (
+            event.eventType === SmsOutboxEventType.PROMOTIONAL_CAMPAIGN
+          ) {
+            await this.smsService.processPromotionalCampaign(
+              (event.payload as { campaignId: string }).campaignId,
+            );
           }
         } catch (error) {
           this.logger.error(
@@ -116,5 +122,52 @@ export class SmsWorkerService {
   async scheduleMonthlyDebtorReminders() {
     this.logger.log('Scheduling monthly debtor reminder SMS...');
     await this.smsService.queueMonthlyDebtorReminders();
+  }
+
+  /**
+   * Process scheduled campaigns
+   * Runs every 5 minutes to check for campaigns that should be sent
+   */
+  @Cron('*/5 * * * *')
+  async processScheduledCampaigns() {
+    const now = new Date();
+
+    // Find campaigns scheduled for now or earlier that are still in SCHEDULED status
+    const scheduledCampaigns = await this.prisma.smsCampaign.findMany({
+      where: {
+        status: 'SCHEDULED',
+        scheduledFor: {
+          lte: now,
+        },
+      },
+    });
+
+    if (scheduledCampaigns.length === 0) {
+      return;
+    }
+
+    this.logger.log(
+      `Processing ${scheduledCampaigns.length} scheduled campaigns`,
+    );
+
+    for (const campaign of scheduledCampaigns) {
+      try {
+        // Create outbox event for the campaign
+        await this.prisma.smsOutbox.create({
+          data: {
+            eventType: SmsOutboxEventType.PROMOTIONAL_CAMPAIGN,
+            payload: { campaignId: campaign.id },
+            status: 'PENDING',
+            campaignId: campaign.id,
+          },
+        });
+
+        this.logger.log(`Queued scheduled campaign ${campaign.id} for sending`);
+      } catch (error) {
+        this.logger.error(
+          `Failed to queue scheduled campaign ${campaign.id}: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        );
+      }
+    }
   }
 }
