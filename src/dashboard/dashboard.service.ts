@@ -221,6 +221,8 @@ export class DashboardService {
         id: true,
         balance: true,
         createdAt: true,
+        yearPlanId: true,
+        status: true,
         member: {
           select: {
             dateOfBirth: true,
@@ -309,9 +311,10 @@ export class DashboardService {
         }
 
         // Calculate monthly payment amount
+        // Type assertion: resolveMatrixPrice only needs the pricing matrix fields, which we've selected
         const monthlyAmount = resolveMatrixPrice(
           purchase.product,
-          purchase.yearPlan,
+          purchase.yearPlan as any, // Type assertion: selected fields contain all needed pricing matrix data
           age,
         );
 
