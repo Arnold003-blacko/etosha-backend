@@ -1159,11 +1159,13 @@ export class BurialsService {
       where: { id: purchaseId },
       select: {
         id: true,
+        purchaseType: true,
         status: true,
         totalAmount: true,
         paidAmount: true,
         balance: true,
         paidAt: true,
+        createdAt: true,
         member: {
           select: {
             id: true,
@@ -1180,7 +1182,19 @@ export class BurialsService {
             pricingSection: true,
             amount: true,
             category: true,
+            currency: true,
           },
+        },
+        payments: {
+          select: {
+            id: true,
+            amount: true,
+            method: true,
+            reference: true,
+            paidAt: true,
+            status: true,
+          },
+          orderBy: { createdAt: 'desc' },
         },
         deceased: {
           select: {

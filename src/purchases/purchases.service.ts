@@ -431,9 +431,11 @@ export class PurchasesService {
       throw new NotFoundException('Product not found or inactive');
     }
 
-    // Calculate total amount (same logic as initiatePurchase)
+    // Calculate total amount
     let totalAmount = Number(product.amount);
 
+    // For FUTURE purchases with payment plan (installments), calculate based on plan
+    // For FUTURE purchases without payment plan (full payment), use immediate price
     if (dto.purchaseType === PurchaseType.FUTURE && dto.yearPlanId) {
       const yearPlan = await this.prisma.yearPlan.findUnique({
         where: { id: dto.yearPlanId },
@@ -470,6 +472,7 @@ export class PurchasesService {
 
       totalAmount = Number(monthly) * yearPlan.months;
     }
+    // FUTURE without yearPlanId = full payment at immediate price (same as IMMEDIATE)
 
     // Validate initial payment doesn't exceed total
     if (initialPayment > totalAmount) {

@@ -1222,12 +1222,24 @@ export class DashboardService {
             id: true,
           },
         }),
-        this.prisma.graveSlot.count({
+        // Count purchases with status PAID for SERENITY_GROUND products (graves)
+        // A grave is deemed sold when fully paid, not when assigned
+        // paidAt date is required - must be set when marking purchase as PAID
+        this.prisma.purchase.count({
           where: {
-            purchaseId: { not: null },
-            createdAt: {
+            status: PurchaseStatus.PAID,
+            purchaseType: {
+              in: [PurchaseType.IMMEDIATE, PurchaseType.FUTURE],
+            },
+            paidAt: {
               gte: start,
               lte: end,
+            },
+            product: {
+              category: 'SERENITY_GROUND',
+            },
+            NOT: {
+              status: PurchaseStatus.CANCELLED,
             },
           },
         }),

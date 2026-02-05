@@ -30,6 +30,13 @@ export class CreatePurchaseWithPaymentDto {
   @IsEnum(FutureFor)
   futureFor?: FutureFor;
 
+  /**
+   * Payment plan ID - Optional
+   * For FUTURE purchases:
+   *   - If provided: Purchase uses installment plan (monthly payments)
+   *   - If not provided: Purchase is full payment at immediate price (no installments)
+   * For IMMEDIATE purchases: Ignored
+   */
   @IsOptional()
   @IsInt()
   @Type(() => Number)
