@@ -294,7 +294,7 @@ export class DashboardController {
         ],
       }),
     )
-    file: Express.Multer.File,
+    file: Express.Multer.File | undefined,
     @Body('createBackupFirst') createBackupFirst?: string,
     @Body('dropExisting') dropExisting?: string,
   ) {
